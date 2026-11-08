@@ -1,5 +1,6 @@
-
 ## Build
+
+完整逐步說明（含 ESP-IDF v6.1 安裝與常見陷阱）見 [SETUP.md](./SETUP.md)。
 
 ### Fetch Dependencies
 
