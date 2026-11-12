@@ -9,15 +9,18 @@ using namespace uitk;
 using namespace uitk::lvgl_cpp;
 using namespace stackchan::avatar;
 
-static const int _eye_size            = 16;
-static const Vector2i _eye_pos        = Vector2i(-70, -16);
-static const Vector2i _eye_min_offset = Vector2i(-16, -16);
-static const Vector2i _eye_max_offset = Vector2i(16, 16);
-static const Vector2i _eye_size_limit = Vector2i(8, 32);
+// 直橢圓眼：約 1:2 寬高比，對齊參考圖的垂直橢圓
+static const Vector2i _eye_pos          = Vector2i(-52, -28);
+static const Vector2i _eye_min_offset   = Vector2i(-16, -16);
+static const Vector2i _eye_max_offset   = Vector2i(16, 16);
+static const Vector2i _eye_width_limit  = Vector2i(14, 30);  // size -100..100 → 寬
+static const Vector2i _eye_height_limit = Vector2i(28, 60);  // size -100..100 → 高（約 2× 寬）
 
 DefaultEyes::DefaultEyes(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t secondaryColor, bool isLeftEye)
 {
     _is_left_eye = isLeftEye;
+
+    const int container_size = _eye_height_limit.y;
 
     _container = std::make_unique<Container>(parent);
     _container->setRadius(0);
@@ -26,10 +29,11 @@ DefaultEyes::DefaultEyes(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t s
     _container->setBgOpa(0);
     _container->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
     _container->setPadding(0, 0, 0, 0);
-    _container->setTransformPivot(_eye_size_limit.y / 2, _eye_size_limit.y / 2);
-    _container->setSize(_eye_size_limit.y, _eye_size_limit.y);
+    _container->setTransformPivot(container_size / 2, container_size / 2);
+    _container->setSize(container_size, container_size);
 
     _eye = std::make_unique<Container>(_container->get());
+    // 非正方形 + CIRCLE radius → 橢圓
     _eye->setRadius(LV_RADIUS_CIRCLE);
     _eye->align(LV_ALIGN_CENTER, 0, 0);
     _eye->setBorderWidth(0);
@@ -37,7 +41,8 @@ DefaultEyes::DefaultEyes(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t s
     _eye->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
 
     _eyelid = std::make_unique<Container>(_container->get());
-    _eyelid->setRadius(0);
+    // 與眼睛同為橢圓遮罩，半開眼時邊緣較自然
+    _eyelid->setRadius(LV_RADIUS_CIRCLE);
     _eyelid->align(LV_ALIGN_CENTER, 0, 0);
     _eyelid->setBorderWidth(0);
     _eyelid->setBgColor(secondaryColor);
@@ -134,10 +139,12 @@ void DefaultEyes::setSize(int size)
 {
     Feature::setSize(size);
 
-    int eye_size = map_range(_size, -100, 100, _eye_size_limit.x, _eye_size_limit.y);
+    // 維持約 1:2 直橢圓，size 同步縮放寬高
+    int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
+    int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
 
-    _eye->setSize(eye_size, eye_size);
-    _eyelid->setSize(eye_size, eye_size);
+    _eye->setSize(eye_w, eye_h);
+    _eyelid->setSize(eye_w, eye_h);
 
     // Force eyelid update
     setWeight(getWeight());

@@ -9,6 +9,7 @@
 #include <lvgl.h>
 #include <smooth_lvgl.hpp>
 #include <memory>
+#include <vector>
 
 namespace stackchan::avatar {
 
@@ -18,7 +19,8 @@ namespace stackchan::avatar {
  */
 class DefaultAvatar : public Avatar {
 public:
-    lv_color_t primaryColor   = lv_color_white();
+    // 參考風格：黑底 + 金黃五官（約 #FFBF40）
+    lv_color_t primaryColor   = lv_color_hex(0xFFBF40);
     lv_color_t secondaryColor = lv_color_black();
 
     void init(lv_obj_t* parent, const lv_font_t* font = &lv_font_montserrat_16);
@@ -68,7 +70,11 @@ public:
     void setVisible(bool visible) override;
 
 private:
-    std::unique_ptr<uitk::lvgl_cpp::Container> _mouth;
+    /** 依 weight 重建 ω／貓嘴折線（points 需持續存活供 lv_line 使用） */
+    void _rebuild_mouth_points();
+
+    std::unique_ptr<uitk::lvgl_cpp::Line> _mouth;
+    std::vector<lv_point_precise_t> _mouth_points;
 };
 
 /**
