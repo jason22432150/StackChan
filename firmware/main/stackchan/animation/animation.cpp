@@ -29,8 +29,13 @@ void Keyframe::apply()
     apply_servo(yawServo, motion.yawServo());
     apply_servo(pitchServo, motion.pitchServo());
 
-    stackchan.leftNeonLight().setColor(leftRgbColor);
-    stackchan.rightNeonLight().setColor(rightRgbColor);
+    // 空字串表示本 keyframe 不改燈色，避免誤關彩虹模式
+    if (!leftRgbColor.empty()) {
+        stackchan.leftNeonLight().setColor(leftRgbColor);
+    }
+    if (!rightRgbColor.empty()) {
+        stackchan.rightNeonLight().setColor(rightRgbColor);
+    }
 }
 
 void Timeline::start()

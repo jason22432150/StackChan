@@ -72,7 +72,8 @@ void Hal::xiaozhi_mcp_init()
     mclog::tagInfo(_tag, "add robot.set_led_color tool");
     mcp_server.AddTool(
         "self.robot.set_led_color",
-        "Set the color of the robot's INTERNAL onboard LED. This is NOT for room lights. "
+        "Set a solid color on the robot's INTERNAL onboard neon LEDs. This is NOT for room lights. "
+        "Calling this disables rainbow mode. "
         "Values: 0-168 (safe range). Red=168,0,0; Green=0,168,0; Blue=0,0,168; White=100,100,100; Off=0,0,0.",
         PropertyList({Property("red", kPropertyTypeInteger, 0, 0, 168),
                       Property("green", kPropertyTypeInteger, 0, 0, 168),
@@ -88,6 +89,33 @@ void Hal::xiaozhi_mcp_init()
 
             GetStackChan().leftNeonLight().setColor(r, g, b);
             GetStackChan().rightNeonLight().setColor(r, g, b);
+
+            return true;
+        });
+
+    mclog::tagInfo(_tag, "add robot.set_led_rainbow tool");
+    mcp_server.AddTool(
+        "self.robot.set_led_rainbow",
+        "Control rainbow flowing animation on the robot's INTERNAL onboard neon LEDs. "
+        "Use when user asks for rainbow / colorful / cycling lights. "
+        "enabled=true starts rainbow; enabled=false stops it (leaves last colors). "
+        "speed is hue degrees per second (30=slow, 60=default, 120=fast).",
+        PropertyList({Property("enabled", kPropertyTypeBoolean, true),
+                      Property("speed", kPropertyTypeInteger, 60, 10, 360)}),
+        [this](const PropertyList& properties) -> ReturnValue {
+            bool enabled = properties["enabled"].value<bool>();
+            int speed    = properties["speed"].value<int>();
+
+            mclog::tagInfo(_tag, "set_led_rainbow: enabled={}, speed={}", enabled, speed);
+
+            LvglLockGuard lock;
+
+            auto& left  = GetStackChan().leftNeonLight();
+            auto& right = GetStackChan().rightNeonLight();
+            left.setRainbowSpeed(static_cast<float>(speed));
+            right.setRainbowSpeed(static_cast<float>(speed));
+            left.setRainbowEnabled(enabled);
+            right.setRainbowEnabled(enabled);
 
             return true;
         });

@@ -89,6 +89,10 @@ void AppAvatar::onOpen()
     avatar->getPanel()->onClick().connect([&]() { _screen_clicked_flag = true; });
     GetStackChan().attachAvatar(std::move(avatar));
 
+    // 預設開啟 Neon 彩虹流動燈效
+    GetStackChan().leftNeonLight().setRainbowEnabled(true);
+    GetStackChan().rightNeonLight().setRainbowEnabled(true);
+
     /* ------------------------------- BLE events ------------------------------- */
     GetHAL().onBleAvatarData.connect([&](const char* data) {
         std::lock_guard<std::mutex> lock(_mutex);
