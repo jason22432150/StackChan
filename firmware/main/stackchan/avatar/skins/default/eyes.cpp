@@ -95,6 +95,14 @@ void DefaultEyes::setEmotion(const Emotion& emotion)
         return;
     }
 
+    // 還原直橢圓外觀（Happy 會暫時壓扁，離開時需恢復）
+    auto restore_eye_geometry = [this]() {
+        int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
+        int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
+        _eye->setSize(eye_w, eye_h);
+        _eyelid->setSize(eye_w, eye_h);
+    };
+
     auto apply_style = [this](int weight, int rotation) {
         setWeight(weight);
         if (_is_left_eye) {
@@ -106,21 +114,34 @@ void DefaultEyes::setEmotion(const Emotion& emotion)
 
     switch (emotion) {
         case Emotion::Neutral:
+            restore_eye_geometry();
             apply_style(100, 0);
             break;
-        case Emotion::Happy:
-            apply_style(72, 1550);
+        case Emotion::Happy: {
+            // 直橢圓不適合舊版大角度旋轉；改壓成橫向微笑眼 + 輕瞇 + 微外揚
+            int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
+            int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
+            const int smile_w = eye_w + 6;
+            const int smile_h = max(10, eye_h / 3);
+            _eye->setSize(smile_w, smile_h);
+            _eyelid->setSize(smile_w, smile_h);
+            apply_style(52, 220);
             break;
+        }
         case Emotion::Angry:
-            apply_style(70, 450);
+            restore_eye_geometry();
+            apply_style(70, 350);
             break;
         case Emotion::Sad:
-            apply_style(70, -400);
+            restore_eye_geometry();
+            apply_style(70, -300);
             break;
         case Emotion::Doubt:
+            restore_eye_geometry();
             apply_style(75, 0);
             break;
         case Emotion::Sleepy:
+            restore_eye_geometry();
             apply_style(35, -50);
             break;
         default:
