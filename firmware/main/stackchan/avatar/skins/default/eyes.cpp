@@ -15,6 +15,7 @@ static const Vector2i _eye_min_offset   = Vector2i(-16, -16);
 static const Vector2i _eye_max_offset   = Vector2i(16, 16);
 static const Vector2i _eye_width_limit  = Vector2i(14, 30);  // size -100..100 → 寬
 static const Vector2i _eye_height_limit = Vector2i(28, 60);  // size -100..100 → 高（約 2× 寬）
+static const int _squint_line_height    = 5;                 // 瞇眼時壓成線的厚度
 
 DefaultEyes::DefaultEyes(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t secondaryColor, bool isLeftEye)
 {
@@ -33,20 +34,21 @@ DefaultEyes::DefaultEyes(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t s
     _container->setSize(container_size, container_size);
 
     _eye = std::make_unique<Container>(_container->get());
-    // 非正方形 + CIRCLE radius → 橢圓
+    // 非正方形 + CIRCLE radius → 橢圓；瞇眼時壓扁即成線
     _eye->setRadius(LV_RADIUS_CIRCLE);
     _eye->align(LV_ALIGN_CENTER, 0, 0);
     _eye->setBorderWidth(0);
     _eye->setBgColor(primaryColor);
     _eye->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
 
+    // 保留眼皮物件以相容舊介面，但改以壓扁眼睛表達瞇眼，故常駐隱藏
     _eyelid = std::make_unique<Container>(_container->get());
-    // 與眼睛同為橢圓遮罩，半開眼時邊緣較自然
     _eyelid->setRadius(LV_RADIUS_CIRCLE);
     _eyelid->align(LV_ALIGN_CENTER, 0, 0);
     _eyelid->setBorderWidth(0);
     _eyelid->setBgColor(secondaryColor);
     _eyelid->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
+    _eyelid->setHidden(true);
 
     setSize(0);
     setWeight(100);
@@ -70,16 +72,29 @@ void DefaultEyes::setPosition(const Vector2i& position)
     auto pos_y = _eye_pos.y + map_range(_position.y, -100, 100, _eye_min_offset.y, _eye_max_offset.y);
 
     _container->setPos(pos_x, pos_y);
-    _eyelid->setY(_eyelid_offset_y);
 }
 
 void DefaultEyes::setWeight(int weight)
 {
     Feature::setWeight(weight);
 
-    _eyelid_offset_y = -map_range(_weight, 0, 100, 0, (int)_eyelid->getHeight());
+    int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
+    int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
 
-    _eyelid->setY(_eyelid_offset_y);
+    int draw_w;
+    int draw_h;
+    // weight ≤ 30（笑臉／眨眼閉合）：直接壓成一條線
+    if (_weight <= 30) {
+        draw_w = eye_w + 10;
+        draw_h = _squint_line_height;
+    } else {
+        // 30→100：由線漸變回直橢圓
+        draw_h = map_range(_weight, 30, 100, _squint_line_height, eye_h);
+        draw_w = eye_w + map_range(_weight, 30, 100, 10, 0);
+    }
+
+    _eye->setSize(draw_w, draw_h);
+    _eyelid->setHidden(true);
 }
 
 void DefaultEyes::setRotation(int rotation)
@@ -95,14 +110,6 @@ void DefaultEyes::setEmotion(const Emotion& emotion)
         return;
     }
 
-    // 還原直橢圓外觀（Happy 會暫時壓扁，離開時需恢復）
-    auto restore_eye_geometry = [this]() {
-        int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
-        int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
-        _eye->setSize(eye_w, eye_h);
-        _eyelid->setSize(eye_w, eye_h);
-    };
-
     auto apply_style = [this](int weight, int rotation) {
         setWeight(weight);
         if (_is_left_eye) {
@@ -114,35 +121,23 @@ void DefaultEyes::setEmotion(const Emotion& emotion)
 
     switch (emotion) {
         case Emotion::Neutral:
-            restore_eye_geometry();
             apply_style(100, 0);
             break;
-        case Emotion::Happy: {
-            // 直橢圓不適合舊版大角度旋轉；改壓成橫向微笑眼 + 輕瞇 + 微外揚
-            int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
-            int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
-            const int smile_w = eye_w + 6;
-            const int smile_h = max(10, eye_h / 3);
-            _eye->setSize(smile_w, smile_h);
-            _eyelid->setSize(smile_w, smile_h);
-            apply_style(52, 220);
+        case Emotion::Happy:
+            // 瞇成線 + 微外揚（^ ^）
+            apply_style(18, 180);
             break;
-        }
         case Emotion::Angry:
-            restore_eye_geometry();
             apply_style(70, 350);
             break;
         case Emotion::Sad:
-            restore_eye_geometry();
             apply_style(70, -300);
             break;
         case Emotion::Doubt:
-            restore_eye_geometry();
             apply_style(75, 0);
             break;
         case Emotion::Sleepy:
-            restore_eye_geometry();
-            apply_style(35, -50);
+            apply_style(20, -50);
             break;
         default:
             break;
@@ -159,14 +154,6 @@ void DefaultEyes::setVisible(bool visible)
 void DefaultEyes::setSize(int size)
 {
     Feature::setSize(size);
-
-    // 維持約 1:2 直橢圓，size 同步縮放寬高
-    int eye_w = map_range(_size, -100, 100, _eye_width_limit.x, _eye_width_limit.y);
-    int eye_h = map_range(_size, -100, 100, _eye_height_limit.x, _eye_height_limit.y);
-
-    _eye->setSize(eye_w, eye_h);
-    _eyelid->setSize(eye_w, eye_h);
-
-    // Force eyelid update
+    // 依目前 weight 重算寬高（含瞇眼壓線）
     setWeight(getWeight());
 }

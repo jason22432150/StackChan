@@ -5,6 +5,7 @@
  */
 #include "default.h"
 #include <cmath>
+#include <cstdint>
 
 using namespace uitk;
 using namespace uitk::lvgl_cpp;
@@ -13,8 +14,8 @@ using namespace stackchan::avatar;
 static const Vector2i _mouth_pos        = Vector2i(0, 42);
 static const Vector2i _mouth_min_offset = Vector2i(-16, -16);
 static const Vector2i _mouth_max_offset = Vector2i(16, 16);
-static const int _mouth_line_width      = 7;
-static const int _lobe_steps            = 12;
+static const int _mouth_line_width      = 6;
+static const int _lobe_steps            = 28;  // 加密採樣，減少折線稜角
 static constexpr float _pi              = 3.14159265f;
 
 DefaultMouth::DefaultMouth(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t secondaryColor)
@@ -29,8 +30,8 @@ DefaultMouth::DefaultMouth(lv_obj_t* parent, lv_color_t primaryColor, lv_color_t
     _mouth->removeFlag(LV_OBJ_FLAG_SCROLLABLE);
     _mouth->setLineColor(primaryColor);
     _mouth->setLineWidth(_mouth_line_width);
-    // 參考圖末端偏方，關閉 round cap
-    _mouth->setLineRounded(false);
+    // 圓角接點：粗折線若關閉 round，關節處會出現缺口／斷續
+    _mouth->setLineRounded(true);
 
     setPosition(_position);
     setWeight(0);
@@ -47,6 +48,8 @@ void DefaultMouth::_rebuild_mouth_points()
     // weight 0：參考圖靜態 ω；weight 越高瓣葉越深，供 SpeakingModifier 開合
     const int lobe_r = map_range(_weight, 0, 100, 22, 20);
     const int depth  = map_range(_weight, 0, 100, 14, 36);
+    // 內縮半線寬，避免粗線在 bbox 邊緣被裁成斷口
+    const int pad = (_mouth_line_width + 1) / 2;
 
     // 注意：lv_line_set_points 不複製陣列；改動 _mouth_points 後必須再次 setPoints
     _mouth_points.clear();
@@ -54,12 +57,19 @@ void DefaultMouth::_rebuild_mouth_points()
 
     // 兩瓣底部半圓組成 ω（LVGL y 向下，sin>0 為往下凹）
     auto append_lobe = [&](int cx) {
+        lv_point_precise_t prev = {INT32_MIN, INT32_MIN};
         for (int i = 0; i <= _lobe_steps; ++i) {
             const float t     = static_cast<float>(i) / static_cast<float>(_lobe_steps);
             const float angle = _pi - t * _pi;  // π → 0
-            const int x       = cx + static_cast<int>(std::lround(lobe_r * std::cos(angle)));
-            const int y       = static_cast<int>(std::lround(depth * std::sin(angle)));
-            _mouth_points.push_back({static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(y)});
+            const int x       = pad + cx + static_cast<int>(std::lround(lobe_r * std::cos(angle)));
+            const int y       = pad + static_cast<int>(std::lround(depth * std::sin(angle)));
+            lv_point_precise_t pt = {static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(y)};
+            // 整數座標下去重，避免零長度線段造成斑駁斷點
+            if (pt.x == prev.x && pt.y == prev.y) {
+                continue;
+            }
+            _mouth_points.push_back(pt);
+            prev = pt;
         }
     };
 
