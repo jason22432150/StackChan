@@ -47,6 +47,8 @@ P2-04 的 Coordinator 編碼器將 `heartbeat` 與 `notification.intent` 序列�
 
 Coordinator 的 `serve_device_stream` 提供 `127.0.0.1` 的 `/v1/device-stream`，呼叫端提供 TLS 憑證與伺服器設定。升級時驗證 Bearer 憑證、`X-StackChan-Device-Id`、`X-StackChan-Policy-Version` 與裝置的 `device:stream` scope。每次收到 WebSocket Pong 後重驗授權，才送出應用層心跳及符合伺服器 generation 的意圖。未回 Pong、授權失效或連線中斷時清理派送 session。現階段意圖在取件後離開暫存佇列，若 Socket 在寫入時中斷可能遺失該筆派送。CoreS3 實際連線、政策租約交換、收據及線上重送仍待接線。
 
+CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket，固定連線到設定主機的 `/v1/device-stream`。它使用明確提供的 Coordinator CA 並保留主機名稱檢查，僅接受 HTTP 101，遇到 HTTP 轉址會關閉連線。呼叫端須在單一工作任務呼叫 `start`、`poll`、`takeNext`、`stop`，並供應已同步的時鐘、已驗證的政策快照及封包上限。單一 WebSocket 文字框可分多次 socket read 收取，超過上限或遇到 WebSocket 層分片會撤銷 session。斷線與心跳逾時同樣停權。Windows 測試使用 transport 替身，裝置憑證握手與到 Coordinator 的端到端網路路徑仍待實機驗證。
+
 ## 4. 建議 SQLite 邏輯實體
 
 **Bridge**：`observations`、`event_log`、`outbox`、`sync_state`、`adapter_state`、`bridge_settings`。

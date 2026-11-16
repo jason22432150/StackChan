@@ -50,4 +50,15 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(device_stream_json_test PRIVATE ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(device_stream_json_test PRIVATE cxx_std_17)
     add_test(NAME device_stream_json_test COMMAND $<TARGET_FILE:device_stream_json_test>)
+
+    add_executable(device_stream_tls_client_test
+        device_stream_tls_client_test.cpp
+        ../main/stackchan/notifications/device_stream_tls_client.cpp
+        ../main/stackchan/notifications/device_stream_json.cpp
+        ../main/stackchan/notifications/device_stream_ingress.cpp
+        ../main/stackchan/notifications/notification_controller.cpp
+    )
+    target_include_directories(device_stream_tls_client_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(device_stream_tls_client_test PRIVATE cxx_std_20)
+    add_test(NAME device_stream_tls_client_test COMMAND $<TARGET_FILE:device_stream_tls_client_test>)
 endif()

@@ -66,7 +66,7 @@ P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識�
 
 裝置端 `DeviceStreamIngress` 接收已解碼的心跳和通知。它核對本機 Session ID、裝置、政策版本與 generation，使用綁定時的可信 UTC 樣本及之後的單調時鐘換算租約和通知期限。心跳時間戳在同一連線內須嚴格遞增，超齡、早於本次綁定或晚於推算 UTC 的封包會被拒絕。網路接線時須驗證時鐘同步與時間戳解析精度，並量測可接受的封包年齡和逾時門檻。
 
-TLS／WebSocket 接線仍須完成。呼叫端須驗證 Coordinator 身分、裝置範圍、政策撤銷與完整 JSON 契約後才能綁定，並為重連或政策更新分配新的遞增本機 Session ID。控制器及 ingress 由單一執行上下文使用，呈現、逾時偵測上界與實機容量仍待驗證。
+`DeviceStreamTlsClient` 已以 ESP-IDF TLS＋WebSocket transport 完成主機名檢查、固定 CA、HTTP 101 升級與分片／超限 Fail-Closed；Windows transport 替身測試通過，ESP32-S3 物件編譯通過。端到端 Coordinator 連線、裝置憑證握手、政策租約交換與實機容量仍待完成。呼叫端須驗證 Coordinator 身分、裝置範圍、政策撤銷與完整 JSON 契約後才能綁定，並為重連或政策更新分配新的遞增本機 Session ID。控制器及 ingress 由單一執行上下文使用。
 
 | 場景 | 通知 UI | 通知音效/TTS | Motion | 補送 |
 |---|---|---|---|---|
