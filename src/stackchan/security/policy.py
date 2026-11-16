@@ -83,7 +83,14 @@ class PolicyService:
                 policy_id=policy["policy_id"],
                 policy_version=policy["version"],
             )
-        if policy["valid_until"] <= current:
+        try:
+            expires_at = datetime.fromisoformat(policy["valid_until"].upper())
+            checked_at = datetime.fromisoformat(current.upper())
+            if expires_at.tzinfo is None or checked_at.tzinfo is None:
+                raise ValueError("政策期限須附時區")
+        except ValueError:
+            return PolicyDecision(False, "policy_time_invalid")
+        if expires_at <= checked_at:
             return PolicyDecision(
                 False,
                 "policy_expired",
