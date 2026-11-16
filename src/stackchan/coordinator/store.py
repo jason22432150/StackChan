@@ -8,6 +8,8 @@ Coordinator SQLite：追加式事件、任務投影、已讀、Receipt、migrati
 - ReadState 顯式操作，version 樂觀鎖
 - presentation_receipts.receipt_id UNIQUE
 - schema_migrations 追蹤版本；僅向前 migration
+- 已清理事件寫入 purged_events tombstone，禁止重導入
+- 清理水位保留 sync cursor 連續性（不因刪除舊序號而假缺口）
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from stackchan.contracts import (
     validate_presentation_receipt,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class CoordinatorStoreError(ValueError):
@@ -130,6 +132,8 @@ class CoordinatorStore:
         current = self.schema_version()
         if current < 1:
             self._apply_migration_1()
+        if self.schema_version() < 2:
+            self._apply_migration_2()
 
     def _apply_migration_1(self) -> None:
         # executescript 會自行 commit，不可包在外層 BEGIN/COMMIT
@@ -233,6 +237,60 @@ class CoordinatorStore:
             self._conn.execute("ROLLBACK")
             raise
 
+    def _apply_migration_2(self) -> None:
+        """版本化設定、清理水位與 purged tombstone。"""
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK(version >= 1),
+                value_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (key, version)
+            );
+
+            CREATE TABLE IF NOT EXISTS app_settings_current (
+                key TEXT PRIMARY KEY,
+                version INTEGER NOT NULL,
+                FOREIGN KEY (key, version) REFERENCES app_settings(key, version)
+            );
+
+            CREATE TABLE IF NOT EXISTS purged_events (
+                event_id TEXT PRIMARY KEY,
+                bridge_id TEXT NOT NULL,
+                epoch TEXT NOT NULL,
+                bridge_sequence INTEGER NOT NULL,
+                ingested_at TEXT NOT NULL,
+                purged_at TEXT NOT NULL,
+                reason TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS cleanup_watermarks (
+                bridge_id TEXT NOT NULL,
+                epoch TEXT NOT NULL,
+                purged_through_sequence INTEGER NOT NULL DEFAULT 0
+                    CHECK(purged_through_sequence >= 0),
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (bridge_id, epoch)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_purged_events_bridge_epoch
+                ON purged_events(bridge_id, epoch, bridge_sequence);
+            CREATE INDEX IF NOT EXISTS idx_app_settings_key
+                ON app_settings(key, version);
+            """
+        )
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)",
+                (_utc_now(),),
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
     def ensure_device(self, device_id: str) -> None:
         """確保裝置列存在（Receipt FK 用）。"""
         self._conn.execute(
@@ -292,6 +350,15 @@ class CoordinatorStore:
                         {
                             "event_id": event["event_id"],
                             "error": "bridge_id／epoch 與批次標頭不符",
+                        }
+                    )
+                    continue
+
+                if self._is_purged_unlocked(event["event_id"]):
+                    rejected.append(
+                        {
+                            "event_id": event["event_id"],
+                            "error": "event_purged_no_reimport",
                         }
                     )
                     continue
@@ -427,6 +494,10 @@ class CoordinatorStore:
             (bridge_id, epoch),
         ).fetchall()
         present = {int(row["bridge_sequence"]) for row in rows}
+        watermark = self.get_cleanup_watermark(bridge_id, epoch)
+        # 已清理的連續序號視為仍存在，避免清理後出現假缺口
+        if watermark > 0:
+            present.update(range(1, watermark + 1))
         if not present:
             contiguous = 0
             missing: list[int] = []
@@ -599,3 +670,188 @@ class CoordinatorStore:
             """
         ).fetchall()
         return {row["name"] for row in rows}
+
+    def set_setting(self, key: str, value: Any) -> int:
+        """寫入版本化設定，回傳新 version。"""
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(version), 0) AS v FROM app_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+            version = int(row["v"]) + 1
+            now = _utc_now()
+            self._conn.execute(
+                """
+                INSERT INTO app_settings(key, version, value_json, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (key, version, json.dumps(value, ensure_ascii=False), now),
+            )
+            self._conn.execute(
+                """
+                INSERT INTO app_settings_current(key, version)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET version = excluded.version
+                """,
+                (key, version),
+            )
+            self._conn.execute("COMMIT")
+            return version
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        row = self._conn.execute(
+            """
+            SELECT s.value_json
+            FROM app_settings_current c
+            JOIN app_settings s ON s.key = c.key AND s.version = c.version
+            WHERE c.key = ?
+            """,
+            (key,),
+        ).fetchone()
+        if row is None:
+            return default
+        return json.loads(row["value_json"])
+
+    def get_setting_version(self, key: str) -> int:
+        row = self._conn.execute(
+            "SELECT version FROM app_settings_current WHERE key = ?",
+            (key,),
+        ).fetchone()
+        return int(row["version"]) if row else 0
+
+    def is_purged(self, event_id: str) -> bool:
+        return self._is_purged_unlocked(event_id)
+
+    def _is_purged_unlocked(self, event_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM purged_events WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        return row is not None
+
+    def get_cleanup_watermark(self, bridge_id: str, epoch: str) -> int:
+        row = self._conn.execute(
+            """
+            SELECT purged_through_sequence FROM cleanup_watermarks
+            WHERE bridge_id = ? AND epoch = ?
+            """,
+            (bridge_id, epoch),
+        ).fetchone()
+        return int(row["purged_through_sequence"]) if row else 0
+
+    def purge_eligible_events(
+        self,
+        *,
+        bridge_id: str,
+        epoch: str,
+        cutoff_iso: str,
+        reason: str = "retention_policy",
+    ) -> list[str]:
+        """
+        清理已納入連續 ACK 且早於 cutoff 的事件。
+
+        不得清理 contiguous 之後／缺口中的事件；清理後寫 tombstone。
+        """
+        contiguous = self.get_sync_cursor(bridge_id, epoch)
+        if contiguous <= 0:
+            return []
+
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = self._conn.execute(
+                """
+                SELECT event_id, bridge_sequence, ingested_at
+                FROM events
+                WHERE bridge_id = ? AND epoch = ?
+                  AND bridge_sequence <= ?
+                  AND ingested_at < ?
+                ORDER BY bridge_sequence ASC
+                """,
+                (bridge_id, epoch, contiguous, cutoff_iso),
+            ).fetchall()
+            purged_ids: list[str] = []
+            now = _utc_now()
+            max_purged_seq = self.get_cleanup_watermark(bridge_id, epoch)
+            for row in rows:
+                event_id = row["event_id"]
+                sequence = int(row["bridge_sequence"])
+                self._conn.execute(
+                    """
+                    INSERT INTO purged_events(
+                        event_id, bridge_id, epoch, bridge_sequence,
+                        ingested_at, purged_at, reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id,
+                        bridge_id,
+                        epoch,
+                        sequence,
+                        row["ingested_at"],
+                        now,
+                        reason,
+                    ),
+                )
+                self._conn.execute(
+                    "DELETE FROM event_evidence WHERE event_id = ?",
+                    (event_id,),
+                )
+                self._conn.execute(
+                    "DELETE FROM read_states WHERE event_id = ?",
+                    (event_id,),
+                )
+                # task_projections 可能仍指向此 event；改為保留列但清除 FK 風險：
+                # 先把 latest_event_id 指到自己佔位不可能；改刪除僅當 latest 為此 id
+                self._conn.execute(
+                    "DELETE FROM task_projections WHERE latest_event_id = ?",
+                    (event_id,),
+                )
+                self._conn.execute("DELETE FROM events WHERE event_id = ?", (event_id,))
+                purged_ids.append(event_id)
+                max_purged_seq = max(max_purged_seq, sequence)
+
+            if purged_ids:
+                # 水位只能推進到「從 1 起連續已 purge／仍存在」的最大序號
+                watermark = self._compute_purge_watermark(bridge_id, epoch, max_purged_seq)
+                self._conn.execute(
+                    """
+                    INSERT INTO cleanup_watermarks(
+                        bridge_id, epoch, purged_through_sequence, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(bridge_id, epoch) DO UPDATE SET
+                        purged_through_sequence = excluded.purged_through_sequence,
+                        updated_at = excluded.updated_at
+                    """,
+                    (bridge_id, epoch, watermark, now),
+                )
+            self._conn.execute("COMMIT")
+            return purged_ids
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def _compute_purge_watermark(
+        self, bridge_id: str, epoch: str, candidate_max: int
+    ) -> int:
+        """水位 = 從 1 起連續皆已 purge 或不需再保留的最大序號。"""
+        purged = {
+            int(row["bridge_sequence"])
+            for row in self._conn.execute(
+                """
+                SELECT bridge_sequence FROM purged_events
+                WHERE bridge_id = ? AND epoch = ?
+                """,
+                (bridge_id, epoch),
+            ).fetchall()
+        }
+        watermark = 0
+        for sequence in range(1, candidate_max + 1):
+            if sequence in purged:
+                watermark = sequence
+            else:
+                break
+        return watermark

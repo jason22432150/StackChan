@@ -22,7 +22,7 @@
 - [x] **P1-03** 完成 Bridge SQLite 交易、Observation ID、Outbox、重試與 epoch；斷電重試測試。`Evidence: src/stackchan/bridge/store.py（observations／event_log／outbox／sync_state／epoch）；tests/bridge/test_sqlite_outbox.py 含原子寫入、冪等、缺口 ACK、斷電前後重試；uv run pytest tests/bridge tests/contracts -v → 88 passed（2026-11-16）。尚未實作真實網路上傳。`
 - [x] **P1-04** 完成 Coordinator SQLite 索引、追加式事件、任務投影、已讀與 Receipt DB Migration／索引測試。`Evidence: src/stackchan/coordinator/store.py（schema_migrations v1、events／event_evidence／task_projections／read_states／presentation_receipts／sync_cursors＋索引）；response.completed 不標 succeeded；已讀樂觀鎖；receipt 冪等；uv run pytest tests/coordinator tests/bridge tests/contracts -q → 96 passed（2026-11-16）。`
 - [x] **P1-05** 完成分層身份／安全配對／政策版號／撤銷；審查對外網路暴露與密鑰保護。`Evidence: src/stackchan/security/（SecurityStore 僅存 token_hash、PairingService、PolicyService Fail-Closed、DEFAULT_BIND_HOST=127.0.0.1、redact_secrets）；ApiGate+撤銷；uv run pytest tests/security tests/coordinator tests/bridge tests/contracts -q → 103 passed（2026-11-16）。尚未部署對外 HTTP listener。`
-- [ ] **P1-06** 完成版本化設定、短期保留政策與清理水位；不得在清理後重導入過期事件。
+- [x] **P1-06** 完成版本化設定、短期保留政策與清理水位；不得在清理後重導入過期事件。`Evidence: Coordinator migration v2（app_settings／purged_events／cleanup_watermarks）；RetentionService 候選 7/14/30、預設 14 未鎖死；清理僅限 contiguous 內過期事件；tombstone 拒絕重導入；uv run pytest tests/retention tests/coordinator tests/security tests/bridge tests/contracts -q → 106 passed（2026-11-16）。`
 - [ ] **P1-07** 確認單一開發清單／CI PR 契約測試規範；高風險合併需授權。
 
 ## Phase 2 — 核心 MVP 的 Bridge／Coordinator／CoreS3

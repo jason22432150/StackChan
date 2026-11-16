@@ -25,6 +25,7 @@ def test_migration_applies_schema_version_and_indexes(
     assert "idx_task_projections_status" in indexes
     assert "idx_receipts_delivery" in indexes
     assert "idx_event_evidence_event" in indexes
+    assert "idx_purged_events_bridge_epoch" in indexes
 
 
 def test_append_only_batch_ingest_and_gap_cursor(
@@ -181,7 +182,8 @@ def test_rejected_invalid_schema_does_not_advance_cursor(
 def test_reopen_preserves_migrated_schema(tmp_path: Path) -> None:
     path = tmp_path / "coord.sqlite3"
     with CoordinatorStore(path) as store:
-        assert store.schema_version() == 1
+        assert store.schema_version() == SCHEMA_VERSION
     with CoordinatorStore(path) as store:
-        assert store.schema_version() == 1
+        assert store.schema_version() == SCHEMA_VERSION
         assert "idx_events_bridge_epoch_seq" in store.list_indexes()
+        assert "idx_purged_events_bridge_epoch" in store.list_indexes()
