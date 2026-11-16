@@ -109,4 +109,21 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(fetch_and_provision_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(fetch_and_provision_test PRIVATE cxx_std_20)
     add_test(NAME fetch_and_provision_test COMMAND $<TARGET_FILE:fetch_and_provision_test>)
+
+    add_executable(start_provisioned_stream_test
+        start_provisioned_stream_test.cpp
+        ../main/stackchan/notifications/stream_session_start.cpp
+        ../main/stackchan/notifications/stream_bootstrap.cpp
+        ../main/stackchan/notifications/stream_provision.cpp
+        ../main/stackchan/notifications/policy_lease_http_client.cpp
+        ../main/stackchan/notifications/policy_lease.cpp
+        ../main/stackchan/notifications/runtime_limits.cpp
+        ../main/stackchan/notifications/device_stream_tls_client.cpp
+        ../main/stackchan/notifications/device_stream_json.cpp
+        ../main/stackchan/notifications/device_stream_ingress.cpp
+        ../main/stackchan/notifications/notification_controller.cpp
+    )
+    target_include_directories(start_provisioned_stream_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(start_provisioned_stream_test PRIVATE cxx_std_20)
+    add_test(NAME start_provisioned_stream_test COMMAND $<TARGET_FILE:start_provisioned_stream_test>)
 endif()
