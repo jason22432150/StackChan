@@ -1,9 +1,15 @@
+import json
 from datetime import datetime, timedelta, timezone
 from sqlite3 import OperationalError
 
 import pytest
 
-from stackchan.contracts.validate import ContractValidationError
+from stackchan.contracts.validate import (
+    ContractValidationError,
+    validate_device_stream_envelope,
+    validate_notification_intent,
+)
+from stackchan.coordinator.device_stream import encode_notification_intent
 from stackchan.coordinator.dispatch import NotificationDispatcher
 from stackchan.security.auth_bridge import StoreBackedTokenDirectory
 from stackchan.security.identity import TokenHasher
@@ -70,6 +76,23 @@ def stabilize(dispatcher, clock, device, session, token):
     for seconds in (3, 2):
         clock.advance(seconds)
         assert dispatcher.heartbeat(device, session, token)
+
+
+def test_authenticated_dispatch_can_encode_a_device_frame(setup_dispatch):
+    dispatcher, clock, _, _ = setup_dispatch
+    assert dispatcher.enqueue(intent("for-a", device="a"))
+    assert dispatcher.enqueue(intent("for-b", device="b", priority=100))
+    session = dispatcher.connect("a", "device-a", "v1")
+    stabilize(dispatcher, clock, "a", session, "device-a")
+
+    selected = dispatcher.take_next("a", session, "device-a")
+    assert selected is not None
+    frame = validate_device_stream_envelope(json.loads(encode_notification_intent(selected, sent_at=clock.wall)))
+    payload = validate_notification_intent(frame["payload"])
+    assert frame["type"] == "notification.intent"
+    for field in ("device_id", "delivery_id", "policy_version", "generation"):
+        assert frame[field] == payload[field] == selected[field]
+    assert frame["delivery_id"] == "for-a"
 
 
 def test_priority_fifo_fairness_and_device_isolation(setup_dispatch):

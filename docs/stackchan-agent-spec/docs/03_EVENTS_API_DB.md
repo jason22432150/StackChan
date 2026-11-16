@@ -39,6 +39,10 @@ Schema 參考 `../contracts/*.schema.json`。Schema 的 enum 是本案規格語�
 
 `openapi.yaml` 為**提案樣板**，與 WebSocket 封包細節分開；不表示原始碼存在端點。正式版還須補入配對協定、錯誤碼與連線狀態事件。
 
+P2-04 的 Coordinator 編碼器將 `heartbeat` 與 `notification.intent` 序列化為 UTF-8 JSON。通知外層的 device、delivery、policy version 與 generation 取自同一份意圖。時間以 UTC 毫秒輸出，截斷更細的精度，並拒絕在送出時已到期的通知。device、policy version 和 delivery ID 須能放入裝置的 128-byte 欄位，generation 使用 uint64。凍結 schema 維持原版本。
+
+呼叫端須先驗證裝置連線與政策，再選取意圖並編碼。相同毫秒內重複編碼心跳會得到相同時間戳，因此網路傳送端仍須依裝置入口規則安排嚴格遞增的心跳。TLS／WebSocket 收送、JSON 裝置端解碼與線上重送仍待接線。
+
 ## 4. 建議 SQLite 邏輯實體
 
 **Bridge**：`observations`、`event_log`、`outbox`、`sync_state`、`adapter_state`、`bridge_settings`。
