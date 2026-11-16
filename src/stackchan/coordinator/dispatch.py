@@ -128,8 +128,11 @@ class NotificationDispatcher:
             self._diagnostics["device_unauthorized"] += 1
         return allowed
 
-    def connect(self, device_id: str, token: str, policy_version: str) -> UUID | None:
-        """建立 RECOVERING 連線。每次成功重連都重新計算穩定時間。"""
+    def can_connect(self, device_id: str, token: str, policy_version: str) -> bool:
+        """驗證升級請求，保留現有連線生命週期。"""
+        return self._connection_policy(device_id, token, policy_version) is not None
+
+    def _connection_policy(self, device_id: str, token: str, policy_version: str) -> str | None:
         if not self._authenticate(device_id, token):
             return None
         decision = self._policies.validate_device_presentation(
@@ -139,10 +142,17 @@ class NotificationDispatcher:
         if not decision.allowed:
             self._diagnostics[decision.reason] += 1
             return None
+        return decision.policy_id
+
+    def connect(self, device_id: str, token: str, policy_version: str) -> UUID | None:
+        """建立 RECOVERING 連線。每次成功重連都重新計算穩定時間。"""
+        policy_id = self._connection_policy(device_id, token, policy_version)
+        if policy_id is None:
+            return None
         now = self._steady_clock()
         session_id = uuid4()
         self._sessions[device_id] = _Session(
-            session_id, sha256(token.encode()).digest(), decision.policy_id, policy_version, now, now,
+            session_id, sha256(token.encode()).digest(), policy_id, policy_version, now, now,
         )
         return session_id
 
@@ -195,7 +205,7 @@ class NotificationDispatcher:
         return True
 
     def take_next(
-        self, device_id: str, session_id: UUID, token: str,
+        self, device_id: str, session_id: UUID, token: str, *, generation: int | None = None,
     ) -> dict[str, Any] | None:
         """取出一筆待派送意圖，接手後的傳輸與收據由呼叫端管理。"""
         now = self._steady_clock()
@@ -213,6 +223,7 @@ class NotificationDispatcher:
             if entry.payload["device_id"] == device_id
             and entry.payload["policy_version"] == session.policy_version
             and entry.policy_id == session.policy_id
+            and (generation is None or entry.payload["generation"] == generation)
         ]
         if not eligible:
             return None

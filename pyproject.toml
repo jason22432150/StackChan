@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "jsonschema[format]>=4.23.0",
     "pyyaml>=6.0.2",
+    "websockets>=17.4,<18",
 ]
 
 [project.scripts]
@@ -18,6 +19,7 @@ stackchan = "stackchan:main"
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",
+    "trustme>=1.2,<2",
 ]
 
 [tool.pytest.ini_options]

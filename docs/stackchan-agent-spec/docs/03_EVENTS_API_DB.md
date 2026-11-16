@@ -43,7 +43,9 @@ P2-04 的 Coordinator 編碼器將 `heartbeat` 與 `notification.intent` 序列�
 
 呼叫端須先驗證裝置連線與政策，再選取意圖並編碼。相同毫秒內重複編碼心跳會得到相同時間戳，因此網路傳送端仍須依裝置入口規則安排嚴格遞增的心跳。
 
-裝置端解碼器接受 Coordinator 編碼器使用的緊湊 UTF-8 JSON 與固定 UTC 毫秒格式。呼叫端在解碼前提供已驗證連線的本機 Session ID 和封包位元組上限。裝置會拒絕重複欄位、尾隨資料、無效編碼與範圍不一致的意圖，再交給既有入口驗證心跳和租約。解碼器會暫時配置 JSON 記憶體，正式位元組上限及解碼峰值須在 CoreS3 量測。TLS／WebSocket 收送與線上重送仍待接線。
+裝置端解碼器接受 Coordinator 編碼器使用的緊湊 UTF-8 JSON 與固定 UTC 毫秒格式。呼叫端在解碼前提供已驗證連線的本機 Session ID 和封包位元組上限。裝置會拒絕重複欄位、尾隨資料、無效編碼與範圍不一致的意圖，再交給既有入口驗證心跳和租約。解碼器會暫時配置 JSON 記憶體，正式位元組上限及解碼峰值須在 CoreS3 量測。
+
+Coordinator 的 `serve_device_stream` 提供 `127.0.0.1` 的 `/v1/device-stream`，呼叫端提供 TLS 憑證與伺服器設定。升級時驗證 Bearer 憑證、`X-StackChan-Device-Id`、`X-StackChan-Policy-Version` 與裝置的 `device:stream` scope。每次收到 WebSocket Pong 後重驗授權，才送出應用層心跳及符合伺服器 generation 的意圖。未回 Pong、授權失效或連線中斷時清理派送 session。現階段意圖在取件後離開暫存佇列，若 Socket 在寫入時中斷可能遺失該筆派送。CoreS3 實際連線、政策租約交換、收據及線上重送仍待接線。
 
 ## 4. 建議 SQLite 邏輯實體
 
