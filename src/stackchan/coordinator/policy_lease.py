@@ -1,6 +1,7 @@
 """裝置政策租約交換（P2-04）：GET /v1/devices/{deviceId}/policy。
 
-尚未部署真實 HTTP listener；以 ApiGate＋PolicyService 驗證授權與 Fail-Closed。
+以 ApiGate＋PolicyService 驗證授權與 Fail-Closed。
+loopback TLS listener 見 `policy_lease_server.serve_device_policy`（127.0.0.1）。
 回傳快照可供 CoreS3 在連線 device-stream 前綁定 policy_version／expires_utc_ms。
 """
 

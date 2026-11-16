@@ -47,7 +47,7 @@ P2-04 的 Coordinator 編碼器將 `heartbeat` 與 `notification.intent` 序列�
 
 Coordinator 的 `serve_device_stream` 提供 `127.0.0.1` 的 `/v1/device-stream`，呼叫端提供 TLS 憑證與伺服器設定。升級時驗證 Bearer 憑證、`X-StackChan-Device-Id`、`X-StackChan-Policy-Version` 與裝置的 `device:stream` scope。每次收到 WebSocket Pong 後重驗授權，才送出應用層心跳及符合伺服器 generation 的意圖。未回 Pong、授權失效或連線中斷時清理派送 session。現階段意圖在取件後離開暫存佇列，若 Socket 在寫入時中斷可能遺失該筆派送。CoreS3 實際連線、收據及線上重送仍待接線。
 
-`DevicePolicyLeaseService` 實作 `GET /v1/devices/{deviceId}/policy` 契約門面：僅同裝置 `device:policy` 憑證可讀；回傳 OpenAPI `Policy` 快照並衍生 `expires_utc_ms` 供裝置綁定。未綁定、撤銷、過期、版號不符、錯 scope 或跨裝置讀取皆 Fail-Closed（403）。尚未部署真實 HTTP listener。
+`DevicePolicyLeaseService` 實作 `GET /v1/devices/{deviceId}/policy` 契約門面：僅同裝置 `device:policy` 憑證可讀；回傳 OpenAPI `Policy` 快照並衍生 `expires_utc_ms` 供裝置綁定。未綁定、撤銷、過期、版號不符、錯 scope 或跨裝置讀取皆 Fail-Closed（403）。`serve_device_policy` 提供 `127.0.0.1` loopback TLS HTTP／1.1 端點，校驗客戶端信任鏈後回傳 JSON；未授權／錯 scope／撤銷政策回傳 Error schema。尚未部署對外非 loopback listener。
 
 CoreS3 的 `parsePolicyLeaseJson` 接受上述 Policy JSON（固定欄位、可選 `revoked:false`），將 `valid_until` 轉成 UTC 毫秒並在本機時鐘已同步且租約未到期時允許 `bindPolicyLease`。過期、`revoked:true`、未知 `privacy_mode`、尾隨資料或超限皆拒絕。產出的 `version`／`expires_utc_ms` 供 `DeviceStreamTlsClient::Config` 使用；尚未接上真實 HTTP GET。
 
