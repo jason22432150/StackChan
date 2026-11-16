@@ -93,6 +93,16 @@
 
 上游 `Motion::setModifyLock` 只是 bool，不是 Mutex；原廠 IMU Modifier 也會使用此旗標。通知 MotionAdapter 必須在提交前檢查 Arbiter、generation、可用角度與速度。`Motion::stop()` 將當前角度設成目標，**不代表已證明物理立即停止**。對 Yaw（可能有連續轉動模式）與 Pitch 分別測試。機構停止優先於回中心，避免突然碰撞；禁用任意外部指令直達 Servo。
 
+### P0-05 主機端驗證
+
+- 本機 `Motion::setModifyLock()` 直接寫入旗標。Idle Motion 與 Head Pet 會讀取，`Motion::move*()` 本身照常將指令轉給 Servo。IMU 晃動反應只在旗標未設時設定旗標並呼叫 `goHome(300)`，反應結束時直接清除旗標。這條路徑沒有所有者識別，控制權交接須由後續仲裁驗證。
+- `Motion::stop()` 對兩軸各呼叫 `move(getCurrentAngle())`。`Servo::move()` 更新動畫目標。Yaw 的 `rotate()` 另走 PWM 模式，位置模式切換發生在後續位置寫入路徑。`stop()` 的回傳無法證明 PWM 已清除或機構已停止。Pitch 的堵轉保護可收窄位置限制並另行更新目標。
+- `Hal::servo_init()` 的位置模式軟體預設值為 Yaw −128.0° 至 +128.0°、Pitch +3.0° 至 +87.0°。Windows MSVC／CMake／CTest 已驗證正規化映射的中心、兩端與超界裁切。這些預設值尚未經 CoreS3 實測確認可作為安全行程。
+
+待驗證項目包括 Yaw 位置／PWM 模式的停止、Pitch 的實際停止與機構行程，以及晃動反應期間的控制權交接。
+
+2026-11-16 使用者同意進行小幅實機測試。CoreS3 `COM8` 記錄 Xiaozhi 原廠介面先回報 Yaw −1°、Pitch 37°，再送出 Yaw +4°、Pitch 37°、速度 150 的位置指令。隨後又出現 Yaw +19°、Pitch 37°、速度 150 的指令，超出本次規劃的小幅操作，因此停止追加動作。序列紀錄僅證明位置指令進入韌體，未取得停止後角度、機構動作觀察或取消證據。語音工具可用於既有功能觀察，精確的停止與交接測試應使用確定的本機輸入。
+
 ## 7. Avatar／Mew
 
 `StackChanAvatarDisplay::SetupUI` 建立 DefaultAvatar 與 Breath/Blink/HeadPet/IMU 等 Modifier。Mew Presenter 應可掛載完整身體圖層與通知狀態動畫，並保持原廠表情、睡眠、喚醒與觸控事件。若使用 `ShowNotification()`，需補全權限、時序、清除、ACK，不應直接把外部文字渲染到不受控視圖。SD 卡優先，素材驗證／解碼在低優先背景工作。欠缺 SD 時回內建角色，CoreS3 不留通知歷史。

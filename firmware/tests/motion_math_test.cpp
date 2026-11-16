@@ -45,6 +45,15 @@ void testNormalizedLookAngles()
         MotionAngles{640, 240},
         "normalized look"
     );
+    // StackChan position-mode defaults use a symmetric yaw and an asymmetric pitch.
+    expectAngles(calculateNormalizedLookAngles(0.0f, 0.0f, -1280, 1280, 30, 870),
+                 MotionAngles{0, 450}, "configured center");
+    expectAngles(calculateNormalizedLookAngles(-1.0f, -1.0f, -1280, 1280, 30, 870),
+                 MotionAngles{-1280, 30}, "configured minimum");
+    expectAngles(calculateNormalizedLookAngles(1.0f, 1.0f, -1280, 1280, 30, 870),
+                 MotionAngles{1280, 870}, "configured maximum");
+    expectAngles(calculateNormalizedLookAngles(-2.0f, 2.0f, -1280, 1280, 30, 870),
+                 MotionAngles{-1280, 870}, "independent axis clamping");
 }
 
 void testPointLookAngles()
