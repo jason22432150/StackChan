@@ -18,7 +18,7 @@
 ## Phase 1 — 契約／安全／基礎設施
 
 - [x] **P1-01** 凍結 AgentEvent／NotificationIntent／PresentationReceipt JSON Schema 與契約 version；測試非法事件與跨版本行為；Gate G1。`Evidence: schema_version=0.1 FROZEN（CONTRACT_VERSION.md）；src/stackchan/contracts；uv run pytest tests/contracts -v → 57 passed（2026-11-16）。OpenAPI／授權 API 仍屬 P1-02，完整 G1 未關閉。`
-- [ ] **P1-02** 完成 OpenAPI、Error Schema、配對流程、Device Stream Envelope；驗證未授權 API 不可讀寫。
+- [x] **P1-02** 完成 OpenAPI、Error Schema、配對流程、Device Stream Envelope；驗證未授權 API 不可讀寫。`Evidence: openapi.yaml 補 NotificationIntent／Error／Pairing／device-stream 與 x-required-scopes；error／pairing／device-stream-envelope schema；ApiGate 未授權／錯 scope／撤銷拒絕；uv run pytest tests/contracts -v → 77 passed（含 P1-01 回歸，2026-11-16）。尚未部署真實 HTTP server。`
 - [ ] **P1-03** 完成 Bridge SQLite 交易、Observation ID、Outbox、重試與 epoch；斷電重試測試。
 - [ ] **P1-04** 完成 Coordinator SQLite 索引、追加式事件、任務投影、已讀與 Receipt DB Migration／索引測試。
 - [ ] **P1-05** 完成分層身份／安全配對／政策版號／撤銷；審查對外網路暴露與密鑰保護。

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackchan.local/contracts/device-stream-envelope.schema.json",
+  "title": "StackChan Device Stream Envelope v0.1 (FROZEN)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "message_id",
+    "device_id",
+    "direction",
+    "type",
+    "sent_at",
+    "generation",
+    "policy_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["coordinator_to_device", "device_to_coordinator"]
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "notification.intent",
+        "notification.cancel",
+        "policy.update",
+        "heartbeat",
+        "stream.ack",
+        "service.state"
+      ]
+    },
+    "sent_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "delivery_id": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "payload": {
+      "type": ["object", "null"],
+      "description": "Type-specific body; NotificationIntent must be validated separately when type=notification.intent",
+      "additionalProperties": true
+    }
+  }
+}

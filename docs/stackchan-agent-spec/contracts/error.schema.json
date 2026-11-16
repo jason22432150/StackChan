@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackchan.local/contracts/error.schema.json",
+  "title": "StackChan API Error v0.1 (FROZEN)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "error", "message"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "error": {
+      "type": "string",
+      "enum": [
+        "unauthorized",
+        "forbidden",
+        "invalid_request",
+        "not_found",
+        "conflict",
+        "policy_invalid",
+        "revoked",
+        "unsupported_schema_version"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "details": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": ["string", "number", "boolean", "null"]
+      },
+      "maxProperties": 16
+    }
+  }
+}

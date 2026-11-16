@@ -21,13 +21,24 @@ class SchemaName(str, Enum):
     AGENT_EVENT = "agent-event"
     NOTIFICATION_INTENT = "notification-intent"
     PRESENTATION_RECEIPT = "presentation-receipt"
+    ERROR = "error"
+    DEVICE_STREAM_ENVELOPE = "device-stream-envelope"
 
 
 _SCHEMA_FILES = {
     SchemaName.AGENT_EVENT: "agent-event.schema.json",
     SchemaName.NOTIFICATION_INTENT: "notification-intent.schema.json",
     SchemaName.PRESENTATION_RECEIPT: "presentation-receipt.schema.json",
+    SchemaName.ERROR: "error.schema.json",
+    SchemaName.DEVICE_STREAM_ENVELOPE: "device-stream-envelope.schema.json",
 }
+
+_PAIRING_DEFS = (
+    "PairingStartRequest",
+    "PairingChallenge",
+    "PairingConfirmRequest",
+    "PairingCompleteResponse",
+)
 
 
 class ContractValidationError(ValueError):
@@ -38,7 +49,7 @@ class ContractValidationError(ValueError):
         self.path = path
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=16)
 def load_schema(name: SchemaName) -> dict[str, Any]:
     """載入並快取指定凍結 schema。"""
     path = contracts_dir() / _SCHEMA_FILES[name]
@@ -48,20 +59,14 @@ def load_schema(name: SchemaName) -> dict[str, Any]:
     return schema
 
 
-def _validator(name: SchemaName) -> Draft202012Validator:
-    return Draft202012Validator(
-        load_schema(name),
-        format_checker=Draft202012Validator.FORMAT_CHECKER,
-    )
+@lru_cache(maxsize=1)
+def _pairing_document() -> dict[str, Any]:
+    path = contracts_dir() / "pairing.schema.json"
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
 
 
-def validate_payload(name: SchemaName, payload: Any) -> dict[str, Any]:
-    """
-    驗證 payload 符合凍結 schema。
-
-    Returns:
-        通過驗證的 dict（便於後續流水線使用）。
-    """
+def _run_validator(validator: Draft202012Validator, payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ContractValidationError("payload 必須為 JSON object")
 
@@ -72,13 +77,23 @@ def validate_payload(name: SchemaName, payload: Any) -> dict[str, Any]:
             path=("schema_version",),
         )
 
-    validator = _validator(name)
     errors = sorted(validator.iter_errors(payload), key=lambda err: list(err.path))
     if errors:
         first = errors[0]
-        path = tuple(first.path)
-        raise ContractValidationError(first.message, path=path)
+        raise ContractValidationError(first.message, path=tuple(first.path))
     return payload
+
+
+def _validator(name: SchemaName) -> Draft202012Validator:
+    return Draft202012Validator(
+        load_schema(name),
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
+
+
+def validate_payload(name: SchemaName, payload: Any) -> dict[str, Any]:
+    """驗證 payload 符合凍結 schema。"""
+    return _run_validator(_validator(name), payload)
 
 
 def validate_agent_event(payload: Any) -> dict[str, Any]:
@@ -96,5 +111,28 @@ def validate_presentation_receipt(payload: Any) -> dict[str, Any]:
     return validate_payload(SchemaName.PRESENTATION_RECEIPT, payload)
 
 
-# 避免未使用 import 警告（ValidationError 供測試 re-export 時可選）
+def validate_error(payload: Any) -> dict[str, Any]:
+    """驗證 API Error。"""
+    return validate_payload(SchemaName.ERROR, payload)
+
+
+def validate_device_stream_envelope(payload: Any) -> dict[str, Any]:
+    """驗證 Device Stream Envelope。"""
+    return validate_payload(SchemaName.DEVICE_STREAM_ENVELOPE, payload)
+
+
+def validate_pairing_message(def_name: str, payload: Any) -> dict[str, Any]:
+    """驗證 pairing.schema.json 內指定 $defs 訊息。"""
+    if def_name not in _PAIRING_DEFS:
+        raise ContractValidationError(f"未知 pairing def: {def_name}")
+    schema = _pairing_document()["$defs"][def_name]
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(
+        schema,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
+    return _run_validator(validator, payload)
+
+
+# 保留 ValidationError 名稱供測試／除錯引用
 _ = ValidationError
