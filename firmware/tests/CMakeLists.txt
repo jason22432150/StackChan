@@ -37,3 +37,17 @@ add_executable(device_stream_ingress_test
 target_include_directories(device_stream_ingress_test PRIVATE ../main)
 target_compile_features(device_stream_ingress_test PRIVATE cxx_std_17)
 add_test(NAME device_stream_ingress_test COMMAND $<TARGET_FILE:device_stream_ingress_test>)
+
+# The firmware fetch_repos.py step supplies the pinned ArduinoJson source.
+set(ARDUINO_JSON_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../components/ArduinoJson/src")
+if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
+    add_executable(device_stream_json_test
+        device_stream_json_test.cpp
+        ../main/stackchan/notifications/device_stream_json.cpp
+        ../main/stackchan/notifications/device_stream_ingress.cpp
+        ../main/stackchan/notifications/notification_controller.cpp
+    )
+    target_include_directories(device_stream_json_test PRIVATE ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(device_stream_json_test PRIVATE cxx_std_17)
+    add_test(NAME device_stream_json_test COMMAND $<TARGET_FILE:device_stream_json_test>)
+endif()

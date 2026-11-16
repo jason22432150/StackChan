@@ -39,7 +39,7 @@ def encode_notification_intent(intent: dict[str, Any], *, sent_at: datetime) -> 
     if expires <= sent:
         raise ContractValidationError("notification expired at send time", path=("expires_at",))
 
-    payload = {**intent, "expires_at": _timestamp(expires)}
+    payload = {**intent, "expires_at": _timestamp(expires), "priority": int(intent["priority"])}
     return _encode(
         "notification.intent",
         intent["device_id"],

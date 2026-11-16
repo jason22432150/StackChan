@@ -41,7 +41,9 @@ Schema 參考 `../contracts/*.schema.json`。Schema 的 enum 是本案規格語�
 
 P2-04 的 Coordinator 編碼器將 `heartbeat` 與 `notification.intent` 序列化為 UTF-8 JSON。通知外層的 device、delivery、policy version 與 generation 取自同一份意圖。時間以 UTC 毫秒輸出，截斷更細的精度，並拒絕在送出時已到期的通知。device、policy version 和 delivery ID 須能放入裝置的 128-byte 欄位，generation 使用 uint64。凍結 schema 維持原版本。
 
-呼叫端須先驗證裝置連線與政策，再選取意圖並編碼。相同毫秒內重複編碼心跳會得到相同時間戳，因此網路傳送端仍須依裝置入口規則安排嚴格遞增的心跳。TLS／WebSocket 收送、JSON 裝置端解碼與線上重送仍待接線。
+呼叫端須先驗證裝置連線與政策，再選取意圖並編碼。相同毫秒內重複編碼心跳會得到相同時間戳，因此網路傳送端仍須依裝置入口規則安排嚴格遞增的心跳。
+
+裝置端解碼器接受 Coordinator 編碼器使用的緊湊 UTF-8 JSON 與固定 UTC 毫秒格式。呼叫端在解碼前提供已驗證連線的本機 Session ID 和封包位元組上限。裝置會拒絕重複欄位、尾隨資料、無效編碼與範圍不一致的意圖，再交給既有入口驗證心跳和租約。解碼器會暫時配置 JSON 記憶體，正式位元組上限及解碼峰值須在 CoreS3 量測。TLS／WebSocket 收送與線上重送仍待接線。
 
 ## 4. 建議 SQLite 邏輯實體
 

@@ -89,7 +89,9 @@ def test_intent_schema_and_wire_expiry_boundary(intent, field, value):
 
 
 def test_intent_deadline_normalization_preserves_original(intent):
+    intent["priority"] = 10.0
     before = intent.copy()
     wire = json.loads(encode_notification_intent(intent, sent_at=SENT_AT))
     assert wire["payload"] == {**before, "expires_at": "2026-11-16T12:00:01.123Z"}
+    assert type(wire["payload"]["priority"]) is int
     assert intent == before
