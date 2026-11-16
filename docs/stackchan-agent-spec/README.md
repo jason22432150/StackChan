@@ -20,9 +20,10 @@
 10. `docs/09_DEVELOPMENT_CHECKLIST.md`：**唯一一份開發任務 Markdown Checklist**，其他文件不建任務清單。
 11. `docs/10_TRACEABILITY.md`：跨模組決策追溯與衝突處理。
 12. `docs/11_EVIDENCE_SOURCES.md`：已檢查的上游原始碼路徑、觀測與限制。
-13. `contracts/agent-event.schema.json`、`notification-intent.schema.json`、`presentation-receipt.schema.json`：草案 JSON Schemas。
-14. `contracts/openapi.yaml`：HTTP API 提案；不是已部署端點。
-15. `StackChan_規格總覽.pdf`：非工程背景快速總覽；**詳細規格以 Markdown 套件為準**。
+13. `docs/12_CI_PR_NORMS.md`：CI／PR 契約測試範圍與高風險合併人工授權規範。
+14. `contracts/agent-event.schema.json`、`notification-intent.schema.json`、`presentation-receipt.schema.json`：草案 JSON Schemas。
+15. `contracts/openapi.yaml`：HTTP API 提案；不是已部署端點。
+16. `StackChan_規格總覽.pdf`：非工程背景快速總覽；**詳細規格以 Markdown 套件為準**。
 
 ## 規格狀態定義
 

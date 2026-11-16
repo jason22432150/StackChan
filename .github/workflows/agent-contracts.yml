@@ -1,0 +1,57 @@
+# Agent 通知平台契約／host 端測試（P1-07）
+# 不燒錄韌體、不修改 Xiaozhi、不部署 Coordinator。
+name: Agent contracts
+
+on:
+  pull_request:
+    paths:
+      - "docs/stackchan-agent-spec/**"
+      - "src/stackchan/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/agent-contracts.yml"
+  push:
+    branches:
+      - "feature/agent-notifications"
+      - "main"
+    paths:
+      - "docs/stackchan-agent-spec/**"
+      - "src/stackchan/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/agent-contracts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-tests:
+    name: Host contract and storage tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --group dev
+
+      - name: Run host-side pytest
+        run: uv run pytest tests/contracts tests/bridge tests/coordinator tests/security tests/retention tests/meta -q
+
+      - name: Remind single checklist
+        run: |
+          test -f docs/stackchan-agent-spec/docs/09_DEVELOPMENT_CHECKLIST.md
+          echo "Use docs/stackchan-agent-spec/docs/09_DEVELOPMENT_CHECKLIST.md as the only task tracker."
