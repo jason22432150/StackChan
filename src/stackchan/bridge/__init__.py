@@ -1,5 +1,6 @@
-"""Bridge 本機儲存與 Outbox（P1-03）。"""
+"""Bridge 本機儲存、服務與 CLI（P1-03／P2-01）。"""
 
+from stackchan.bridge.service import BridgeIngestOutcome, BridgeService
 from stackchan.bridge.store import (
     BridgeStore,
     BridgeStoreError,
@@ -7,6 +8,8 @@ from stackchan.bridge.store import (
 )
 
 __all__ = [
+    "BridgeIngestOutcome",
+    "BridgeService",
     "BridgeStore",
     "BridgeStoreError",
     "IngestResult",

@@ -425,6 +425,18 @@ class BridgeStore:
             "next_sequence": int(settings["next_sequence"]),
         }
 
+    def get_event_by_id(self, event_id: str) -> dict[str, Any] | None:
+        """依 event_id 讀取已保存 payload；不存在則 None。"""
+        row = self._conn.execute(
+            """
+            SELECT payload_json FROM event_log WHERE event_id = ?
+            """,
+            (event_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["payload_json"])
+
     def _compute_contiguous_acked(self, bridge_id: str, epoch: str) -> int:
         rows = self._conn.execute(
             """
