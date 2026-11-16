@@ -61,4 +61,12 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(device_stream_tls_client_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(device_stream_tls_client_test PRIVATE cxx_std_20)
     add_test(NAME device_stream_tls_client_test COMMAND $<TARGET_FILE:device_stream_tls_client_test>)
+
+    add_executable(policy_lease_test
+        policy_lease_test.cpp
+        ../main/stackchan/notifications/policy_lease.cpp
+    )
+    target_include_directories(policy_lease_test PRIVATE ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(policy_lease_test PRIVATE cxx_std_17)
+    add_test(NAME policy_lease_test COMMAND $<TARGET_FILE:policy_lease_test>)
 endif()
