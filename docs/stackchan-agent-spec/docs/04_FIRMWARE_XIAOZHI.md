@@ -43,11 +43,24 @@
 | SD 資產故障 | 切內建角色 | 原廠音訊不受損 | 安全待機 | 與素材故障分離 |
 | FreeRTOS 資源不足 | 減少動畫／省略音效 | 不阻塞 Xiaozhi | 降級安全姿態 | Coordinator 保留歷史 |
 
-## 5. 原廠 Audio／TTS 共存（P0 未完成）
+## 5. 原廠 Audio／TTS 共存（P0-03 本機基準）
 
-`hal_bridge::app_play_sound()` 的實作僅證明**播放已知 sound** 的入口；未證明可以安全播報任意文字。`Application::PlaySound`、音訊 service、PCM／Opus 處理與 Session ownership 需在拉取上游 `firmware/repos.json` 所指依賴後調查。**禁止以 `audio.cpp` 的麥克風測試（EnableInput/Output＋OutputData）當通知 TTS 捷徑**；那段測試可直接切換 Codec 狀態，可能破壞 Xiaozhi。
+基準為 StackChan `00af989` 與本機 Xiaozhi `v2.5.2`（`49b4380b3faa0ceadd28a3e78aaf0f311c46c57e`）加上 P0-02 驗證的既有 patch，對應 ESP32-S3 的本機建置。
 
-建議分三個能力層級：`A0=無通知音訊`（純 UI/Servo）；`A1=已驗證安全播放短提示音`；`A2=已驗證的文字 TTS／查詢整合`。每層獨立 Gate；語音查詢需使用原廠 Xiaozhi 安全可用的服務事件／工具回呼，未證實時標記 UNVERIFIED。不得透過額外付費 OpenAI API 作為預設方案。
+| 路徑 | 本機原始碼與建置證據 |
+|---|---|
+| 既有短提示音 | `firmware/main/hal/hal.cpp` 的 Reminder handler 呼叫 `hal_bridge::app_play_sound(OGG_NEW_NOTIFICATION)`，由 `hal_bridge.cc` 轉給 `Application::PlaySound`。`audio/audio_service.cc::PlaySound` 將 Ogg Opus 封包送進共用解碼佇列，佇列滿時可等待。這個呼叫回傳 `void`，沒有個別取消或播放完成控制介面。 |
+| Xiaozhi 對話 | `application.cc::InitializeProtocol` 的 `tts start/stop` 切換 Speaking 與 Listening／Idle。Speaking 時收到的音訊封包進入同一解碼佇列；`sentence_start` 的文字用於顯示。自動模式切回 Listening 時有等候播放排空的路徑，進入 Speaking 或啟用語音處理也可能重設解碼器。 |
+| Xiaozhi 既有遠端通知 | Protocol 的 `notify` 需要 `audio_url`，字幕為選填。`Application` 在主迴圈從 Idle 啟動私有的 `StartNotification`，經 `NotifyPlayer` 下載 Ogg，進入 Notifying 並使用共用音訊服務。喚醒事件走 `StopNotification` 再開始對話，字幕及完成回呼受 `playback_id` 驗證。此介面接收已有音訊，Coordinator 的政策 lease 與任意文字 TTS 仍需獨立驗證。 |
+| 取消邊界 | `AudioService::ResetDecoder` 增加播放 generation 並清空共用解碼、播放及測試佇列。已由 `AudioOutputTask` 取出的 PCM 仍可能進入 `OutputData`。這條路徑無法證明通知專屬取消或停止延遲，亦不應用於取消 Agent 通知時清除原廠對話。 |
+
+**P0-03 結論**
+
+- **A0（無 Agent 通知音訊）** 是目前採用的能力上限。後續 UI 或 Servo 各自依其驗收 Gate 啟用。
+- **A1（短提示音）尚未驗證**。已確認內建 Ogg Opus 素材與播放入口存在。啟用前仍須驗證喚醒／聆聽／回覆的搶占、共享佇列排空、撤權停止上界與原廠對話回歸。Idle 訊號只能當作狀態輸入，派送仍須通過資源與政策授權。
+- **A2（文字 TTS／語音查詢）尚未驗證**。已查到 Xiaozhi 對話播放與預先產生 Ogg 的通知路徑。Agent 文字合成、經授權的查詢及可獨立取消的呈現需要後續驗證。不得直接借用 `firmware/main/hal/audio.cpp` 的麥克風測試操作 Codec，或預設依賴額外付費 OpenAI API。
+
+驗收使用本機 ESP32-S3 ELF 的符號表確認八個播放、取消與重設函式已連結，並驗證內建通知素材含 Ogg Opus 標頭（6,191 bytes）。全套 Python 回歸 150 項通過。CoreS3 音訊行為與停止時間仍待實機驗收。
 
 ## 6. Motion 安全
 
