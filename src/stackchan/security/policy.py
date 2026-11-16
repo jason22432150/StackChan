@@ -112,3 +112,37 @@ class PolicyService:
             policy_id=policy["policy_id"],
             policy_version=policy["version"],
         )
+
+    def issue_device_lease(
+        self,
+        device_id: str,
+        *,
+        claimed_policy_version: str | None = None,
+        now: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        發放目前有效政策快照（成功路徑不含 revoked）。
+
+        未指定 claimed_policy_version 時使用裝置綁定版號，供首次租約交換。
+        Fail-Closed：無綁定／撤銷／過期／版號不符。
+        """
+        binding = self._store.get_device_binding(device_id)
+        if binding is None:
+            raise PolicyError("device_unbound")
+        version = claimed_policy_version or binding["policy_version"]
+        decision = self.validate_device_presentation(
+            device_id,
+            claimed_policy_version=version,
+            now=now,
+        )
+        if not decision.allowed:
+            raise PolicyError(decision.reason)
+        policy = self._store.get_policy(binding["policy_id"], binding["policy_version"])
+        if policy is None:
+            raise PolicyError("policy_missing")
+        return {
+            "policy_id": policy["policy_id"],
+            "version": policy["version"],
+            "privacy_mode": policy["privacy_mode"],
+            "valid_until": policy["valid_until"],
+        }
