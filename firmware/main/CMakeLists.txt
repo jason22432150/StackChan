@@ -9,6 +9,9 @@ if(CONFIG_LIBC_NEWLIB_NANO_FORMAT)
         "Component config -> C standard library).")
 endif()
 
+# 注意：不可加 CONFIGURE_DEPENDS——ESP-IDF 在 component_get_requirements 的
+# script mode 會 include 本檔，CONFIGURE_DEPENDS 會直接 FATAL。
+# GLOB 只在 configure 時求值；新增巢狀 .cpp 後若未觸發 reconfigure，會漏編。
 file(GLOB_RECURSE STACK_CHAN_SOURCES
     "apps/*.c"
     "apps/*.cc"
@@ -23,7 +26,22 @@ file(GLOB_RECURSE STACK_CHAN_SOURCES
     "stackchan/*.cc"
     "stackchan/*.cpp"
 )
-set(STACK_CHAN_INCLUDE_DIRS 
+# P2-04：明確釘住 notifications 翻譯單元，避免舊 build 快取漏掉（見 compile_commands 曾為 0）。
+set(STACK_CHAN_NOTIFICATION_SOURCES
+    "stackchan/notifications/notification_controller.cpp"
+    "stackchan/notifications/device_stream_ingress.cpp"
+    "stackchan/notifications/device_stream_json.cpp"
+    "stackchan/notifications/device_stream_tls_client.cpp"
+    "stackchan/notifications/policy_lease.cpp"
+    "stackchan/notifications/policy_lease_http_client.cpp"
+    "stackchan/notifications/runtime_limits.cpp"
+    "stackchan/notifications/stream_bootstrap.cpp"
+    "stackchan/notifications/stream_provision.cpp"
+    "stackchan/notifications/stream_session_start.cpp"
+)
+list(APPEND STACK_CHAN_SOURCES ${STACK_CHAN_NOTIFICATION_SOURCES})
+list(REMOVE_DUPLICATES STACK_CHAN_SOURCES)
+set(STACK_CHAN_INCLUDE_DIRS
     "."
 )
 list(APPEND STACK_CHAN_SOURCES main.cpp)

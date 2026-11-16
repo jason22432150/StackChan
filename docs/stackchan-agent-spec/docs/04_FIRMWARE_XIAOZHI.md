@@ -68,7 +68,7 @@ P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識�
 
 裝置端 `DeviceStreamIngress` 接收已解碼的心跳和通知。它核對本機 Session ID、裝置、政策版本與 generation，使用綁定時的可信 UTC 樣本及之後的單調時鐘換算租約和通知期限。心跳時間戳在同一連線內須嚴格遞增，超齡、早於本次綁定或晚於推算 UTC 的封包會被拒絕。網路接線時須驗證時鐘同步與時間戳解析精度，並量測可接受的封包年齡和逾時門檻。
 
-`DeviceStreamTlsClient` 已以 ESP-IDF TLS＋WebSocket transport 完成主機名檢查、固定 CA、HTTP 101 升級與分片／超限 Fail-Closed；Windows transport 替身測試通過，ESP32-S3 物件編譯通過。Coordinator 側已驗證 loopback「GET policy → MVP dispatcher → device-stream」軟體端到端（`test_loopback_policy_to_stream`）。裝置端已串起 `fetchAndProvisionDeviceStream`＋`startProvisionedDeviceStream`；Windows CTest 通過。裝置韌體對同一 loopback 的憑證握手與實機驗收仍待完成。呼叫端須驗證 Coordinator 身分、裝置範圍、政策撤銷與完整 JSON 契約後才能綁定，並為重連或政策更新分配新的遞增本機 Session ID。控制器及 ingress 由單一執行上下文使用。
+`DeviceStreamTlsClient` 已以 ESP-IDF TLS＋WebSocket transport 完成主機名檢查、固定 CA、HTTP 101 升級與分片／超限 Fail-Closed；Windows transport 替身測試通過，ESP32-S3 物件編譯通過。Coordinator 側已驗證 loopback「GET policy → MVP dispatcher → device-stream」軟體端到端（`test_loopback_policy_to_stream`）。裝置端已串起 `fetchAndProvisionDeviceStream`＋`startProvisionedDeviceStream`；Windows CTest 通過。`firmware/main/CMakeLists.txt` 以 `STACK_CHAN_NOTIFICATION_SOURCES` 明確釘住十個 notifications 翻譯單元（ESP-IDF script-mode 不可用 `CONFIGURE_DEPENDS`）；2026-11-17 `idf.py reconfigure` 成功且 managed `78/esp-ml307` hash 與 `dependencies.lock` 一致，ninja 已產出全部 ESP32-S3 notifications `.obj`。裝置韌體全量連結／對同一 loopback 的憑證握手與實機驗收仍待完成。呼叫端須驗證 Coordinator 身分、裝置範圍、政策撤銷與完整 JSON 契約後才能綁定，並為重連或政策更新分配新的遞增本機 Session ID。控制器及 ingress 由單一執行上下文使用。
 
 | 場景 | 通知 UI | 通知音效/TTS | Motion | 補送 |
 |---|---|---|---|---|
