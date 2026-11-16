@@ -49,7 +49,9 @@ Coordinator 的 `serve_device_stream` 提供 `127.0.0.1` 的 `/v1/device-stream`
 
 `DevicePolicyLeaseService` 實作 `GET /v1/devices/{deviceId}/policy` 契約門面：僅同裝置 `device:policy` 憑證可讀；回傳 OpenAPI `Policy` 快照並衍生 `expires_utc_ms` 供裝置綁定。未綁定、撤銷、過期、版號不符、錯 scope 或跨裝置讀取皆 Fail-Closed（403）。`serve_device_policy` 提供 `127.0.0.1` loopback TLS HTTP／1.1 端點，校驗客戶端信任鏈後回傳 JSON；未授權／錯 scope／撤銷政策回傳 Error schema。尚未部署對外非 loopback listener。
 
-CoreS3 的 `parsePolicyLeaseJson` 接受上述 Policy JSON（固定欄位、可選 `revoked:false`），將 `valid_until` 轉成 UTC 毫秒並在本機時鐘已同步且租約未到期時允許 `bindPolicyLease`。過期、`revoked:true`、未知 `privacy_mode`、尾隨資料或超限皆拒絕。產出的 `version`／`expires_utc_ms` 供 `DeviceStreamTlsClient::Config` 使用；尚未接上真實 HTTP GET。
+CoreS3 的 `parsePolicyLeaseJson` 接受上述 Policy JSON（固定欄位、可選 `revoked:false`），將 `valid_until` 轉成 UTC 毫秒並在本機時鐘已同步且租約未到期時允許 `bindPolicyLease`。過期、`revoked:true`、未知 `privacy_mode`、尾隨資料或超限皆拒絕。產出的 `version`／`expires_utc_ms` 供 `DeviceStreamTlsClient::Config` 使用。
+
+`PolicyLeaseHttpClient` 以 ESP-IDF TLS transport 對 Coordinator 發出 `GET /v1/devices/{deviceId}/policy`：明確 CA、拒絕轉址／非 200、要求 `Content-Length` 與本文一致，再交給 `parsePolicyLeaseJson`；`applyPolicyLeaseToStreamFields` 填入 stream 的 `policy_version`／`policy_expires_utc_ms`。Windows transport 替身測試通過；與 loopback server 的端到端實機路徑仍待驗證。
 
 P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `CORE_S3_MVP_RUNTIME_LIMITS` 對齊（capacity 4、heartbeat 4s、stability 5s、frame age 5s、frame 1024 bytes、network 10s；Coordinator heartbeat_interval 1s、pong_timeout 2s）。超出硬上限的設定 Fail-Closed。實機失聯撤銷時間仍待 R-006。
 
