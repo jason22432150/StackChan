@@ -20,3 +20,11 @@ if(MSVC)
 endif()
 
 add_test(NAME motion_math_test COMMAND $<TARGET_FILE:motion_math_test>)
+
+add_executable(notification_controller_test
+    notification_controller_test.cpp
+    ../main/stackchan/notifications/notification_controller.cpp
+)
+target_include_directories(notification_controller_test PRIVATE ../main)
+target_compile_features(notification_controller_test PRIVATE cxx_std_17)
+add_test(NAME notification_controller_test COMMAND $<TARGET_FILE:notification_controller_test>)
