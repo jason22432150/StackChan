@@ -12,7 +12,7 @@
 - [x] **P0-04** 追蹤 `_stackchan_update_task`、LVGL lock 生命周期、Task 優先級與 PSRAM，保留基準量測。 `Evidence: 04_FIRMWARE_XIAOZHI.md §3；f7f11f4／CoreS3（2026-11-16）。雙設定物件編譯、診斷版全量建置及 ota_0 寫入校驗通過；映像 SHA256 077493621748ad45170a80cff2b982c1e3e205c3706fed7227ec7622d6957545。COM8 捕捉 41 個視窗，確認待機／聆聽／回覆與回到待機；最大更新間隔 184,054 µs、最大持鎖 117,429 µs、內部 heap 低水位 5,424 bytes、PSRAM 低水位 7,555,464 bytes。P2-04 容量與 lease 上界仍待決定。`
 - [ ] **P0-05** 查明 `Motion::setModifyLock`、IMU Modifier、Servo `stop()`、Yaw/Pitch 實機限制；`Evidence: 未提供`。
 - [ ] **P0-06** 確認 CoreS3 SD 挂載、圖片載入格式與失敗路徑；`Evidence: 未提供`。
-- [ ] **P0-07** 查驗 Codex 官方 Hooks／Cursor 事件及版本能力、ChatGPT/Grok 瀏覽器／UI 來源權限分級；`Evidence: 未提供`。
+- [x] **P0-07** 查驗 Codex 官方 Hooks／Cursor 事件及版本能力、ChatGPT/Grok 瀏覽器／UI 來源權限分級。 `Evidence: 11_EVIDENCE_SOURCES.md §5（2026-11-16）；官方 Hook／瀏覽器文件與本機 Codex CLI 0.156.1、Cursor IDE 3.30.14 版本核對；Adapter／Bridge／契約測試 111 passed，完整 pytest 150 passed。本項為能力與授權稽核，真實 Hook 投遞及 P4-02 UI Adapter 尚未驗證。`
 - [ ] **P0-08** 完成 Phase 0 風險與替代方案審查，必要的人類核准；`Evidence: 未提供`。
 
 ## Phase 1 — 契約／安全／基礎設施
