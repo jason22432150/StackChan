@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackchan.local/contracts/notification-intent.schema.json",
+  "title": "StackChan NotificationIntent v0.1 (FROZEN)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "notification_id",
+    "delivery_id",
+    "device_id",
+    "event_ids",
+    "priority",
+    "policy_version",
+    "generation",
+    "expires_at",
+    "presentation_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "notification_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delivery_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "maxItems": 100
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "presentation_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ui", "audio", "motion", "tts"],
+      "properties": {
+        "ui": { "type": "boolean" },
+        "audio": { "type": "boolean" },
+        "motion": { "type": "boolean" },
+        "tts": { "type": "boolean" }
+      }
+    },
+    "presentation_profile": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    }
+  }
+}

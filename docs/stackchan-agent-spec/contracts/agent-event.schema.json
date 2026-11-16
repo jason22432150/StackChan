@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackchan.local/contracts/agent-event.schema.json",
+  "title": "StackChan AgentEvent v0.1 (FROZEN)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "observation_id",
+    "bridge_id",
+    "adapter_id",
+    "agent_id",
+    "event_type",
+    "evidence_level",
+    "privacy_class",
+    "observed_at",
+    "bridge_sequence",
+    "epoch"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "observation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_event_id": {
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "bridge_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "adapter_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "session_id": {
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "source_task_id": {
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "task.started",
+        "task.running",
+        "task.awaiting_user",
+        "task.succeeded",
+        "task.failed",
+        "task.cancelled",
+        "response.completed",
+        "observation.uncertain"
+      ]
+    },
+    "evidence_level": {
+      "type": "string",
+      "enum": ["verified", "observed", "inferred", "unknown"]
+    },
+    "privacy_class": {
+      "type": "string",
+      "enum": ["public", "internal", "sensitive", "secret"]
+    },
+    "occurred_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "bridge_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "epoch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_sequence": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "source_payload": {
+      "type": "object",
+      "description": "Allowlisted and redacted source facts only; never raw prompts or credentials by default",
+      "additionalProperties": {
+        "type": ["string", "number", "boolean", "null"]
+      },
+      "maxProperties": 32
+    }
+  }
+}

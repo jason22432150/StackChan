@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stackchan.local/contracts/presentation-receipt.schema.json",
+  "title": "StackChan PresentationReceipt v0.1 (FROZEN)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "delivery_id",
+    "attempt_id",
+    "device_id",
+    "generation",
+    "status",
+    "reported_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delivery_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "device_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "started",
+        "completed",
+        "interrupted",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "reported_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
