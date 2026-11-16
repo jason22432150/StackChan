@@ -2,7 +2,19 @@
 
 ## 1. 來源界限
 
-已讀取的是 M5Stack 上游 `m5stack/StackChan` 的原始碼；個人分支 `jason22432150/StackChan` 讀取失敗，不能假設完全相同。上游可能落後於已發行的韌體。**以下以「上游可觀測」與「提案」區分。**
+### P0-01 Git 基準（2026-11-16）
+
+| 來源 | 核對的分支與 HEAD |
+|---|---|
+| [M5Stack 上游](https://github.com/m5stack/StackChan/tree/28b9f0c8bd6acd81cb3c70f1a93c3e373b39d400) | `main`／`28b9f0c8bd6acd81cb3c70f1a93c3e373b39d400` |
+| [使用者 fork](https://github.com/jason22432150/StackChan/tree/4a39d5114c5d8ea555444396434918db6a0f5656) | 預設分支 `my-stackchan-01`／`4a39d5114c5d8ea555444396434918db6a0f5656` |
+| 本機 checkout | `feature/agent-notifications`／`f7f11f4168bc95a6d170d48e456b07711c086592` |
+
+`git ls-remote --symref` 回傳的兩個遠端 HEAD 與本機基準 ref 相同。遠端 fork 在此次查詢未列出 `feature/agent-notifications`。以「落後／領先」表示，fork 對原廠基準為 0／3，本機對 fork 為 0／13，本機對原廠基準為 0／16。兩個基準都是本機 HEAD 的祖先。
+
+相對原廠基準，本機 `firmware/` 的七個差異檔案中，會進入韌體建置的差異集中在 `main/Kconfig.projbuild` 與 `main/hal/hal.cpp` 的 P0-04 診斷。依賴清單、lockfile 與 patch 的指定路徑差異檢查通過。版本對照使用原始碼 commit，出廠映像的對應版本仍待實機確認。
+
+本輪授權涵蓋本機開發、測試與提交上一輪結果。推送、合併主分支、燒錄與 OTA 均未執行。G0 整體驗收仍依 `07_TEST_ACCEPTANCE.md` 的其餘證據判定。
 
 ## 2. 上游已核對的整合點
 
@@ -38,7 +50,15 @@
 - 本機 `Hal::startXiaozhi()` 將 `stackchan` task 固定在 core 1，優先級 3，stack 4,096 bytes。CoreS3 顯示的 LVGL port task 同樣在 core 1、優先級 3。現有 ESP32-S3 建置採 100 Hz FreeRTOS tick。
 - `_stackchan_update_task` 每輪先延遲 20 ms、更新 Reminder，再建立 `LvglLockGuard`。Xiaozhi 非 Idle 時的 100 ms 延遲發生在 guard 內。更新 Avatar，以及 Ready 後的初始化和 UI 更新也在同一 guard 內。離開迴圈本體或執行 `continue` 都會析構 guard。底層顯示鎖最多等待 30 秒，失敗只會記錄 `Failed to lock display`，出現該錯誤的量測區間應判為無效。
 - `StackChan Diagnostics` 的 `CONFIG_STACKCHAN_RUNTIME_BASELINE` 預設關閉。啟用後從序列日誌擷取 `StackChanBaseline`，約每五秒記錄更新週期、等鎖與持鎖時間的最大值。記憶體欄位包含內部 heap 與 PSRAM 可用量和最低可用量、PSRAM 最大連續可用區塊，以及 task stack 最低剩餘量。記錄在 guard 析構後執行。ESP-IDF 的 heap 最低可用量按區域追蹤，用來估計最壞餘裕。
-- 實機需記錄板型、韌體 build ID 與情境，分別保留待機、喚醒／聆聽及回覆期間的樣本。這些樣本仍待取得，P2-04 的佇列容量與 lease 上界仍待決定。
+- 2026-11-16 在 CoreS3（ESP32-S3 rev v0.2、8 MiB PSRAM、Windows COM8）以 `f7f11f4` 診斷版量測，ELF SHA256 為 `9477d38f820f2427532177d622c273ee5a6724b269f103e84271d4aa4864b37c`。序列紀錄共 41 個約五秒視窗，包含 Idle → Connecting → Listening → Speaking → Listening → Idle。下表僅計入能明確歸於單一狀態的視窗。
+
+| 狀態 | 樣本數 | 最大更新間隔 (µs) | 最大等鎖 (µs) | 最大持鎖 (µs) | 最低取樣可用內部 heap (bytes) | 最低取樣可用 PSRAM (bytes) |
+|---|---:|---:|---:|---:|---:|---:|
+| 待機 | 17 | 44,649 | 6,136 | 13,787 | 18,875 | 7,577,972 |
+| 聆聽 | 6 | 141,222 | 9,687 | 108,835 | 14,923 | 7,577,620 |
+| 回覆 | 5 | 184,054 | 45,297 | 116,819 | 13,639 | 7,569,864 |
+
+納入轉換視窗時，最大持鎖為 117,429 µs。裝置回報內部 heap 低水位 5,424 bytes、PSRAM 低水位 7,555,464 bytes，task stack 低水位 1,592 bytes。擷取期間未記錄顯示鎖逾時。這組數據是單次工作負載的實測基準，P2-04 的佇列容量與 lease 上界仍待決定。
 
 ## 4. 狀態仲裁矩陣
 
