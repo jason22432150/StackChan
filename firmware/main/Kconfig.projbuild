@@ -11,6 +11,17 @@ config STACKCHAN_SERVER_URL
 
 endmenu
 
+menu "StackChan Diagnostics"
+
+config STACKCHAN_RUNTIME_BASELINE
+    bool "Log StackChan task timing and memory baseline"
+    default n
+    help
+        Log five-second maxima for the update period and LVGL lock timing,
+        plus ESP32 heap and task stack measurements. For bench builds only.
+
+endmenu
+
 menu "Xiaozhi Assistant"
 
 config OTA_URL

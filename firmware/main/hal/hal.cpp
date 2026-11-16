@@ -53,6 +53,13 @@ void Hal::init()
 #include <esp_timer.h>
 #include <esp_mac.h>
 
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+#include <algorithm>
+#include <cinttypes>
+#include <esp_heap_caps.h>
+#include <esp_log.h>
+#endif
+
 void Hal::delay(std::uint32_t ms)
 {
     vTaskDelay(pdMS_TO_TICKS(ms));
@@ -142,16 +149,85 @@ void Hal::xiaozhi_board_init()
     hal_bridge::xiaozhi_board_init();
 }
 
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+namespace {
+struct RuntimeBaseline {
+    int64_t last_iteration_us = 0;
+    int64_t last_report_us = esp_timer_get_time();
+    int64_t max_period_us = 0;
+    int64_t max_lock_wait_us = 0;
+    int64_t max_lock_hold_us = 0;
+
+    void beginIteration()
+    {
+        const auto now = esp_timer_get_time();
+        if (last_iteration_us != 0) {
+            max_period_us = std::max(max_period_us, now - last_iteration_us);
+        }
+        last_iteration_us = now;
+    }
+
+    void finishLock(int64_t requested_us, int64_t acquired_us, int64_t released_us)
+    {
+        max_lock_wait_us = std::max(max_lock_wait_us, acquired_us - requested_us);
+        max_lock_hold_us = std::max(max_lock_hold_us, released_us - acquired_us);
+        if (released_us - last_report_us < 5'000'000) {
+            return;
+        }
+
+        constexpr auto internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        constexpr auto psram_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+        ESP_LOGI("StackChanBaseline",
+                 "period_max_us=%" PRId64 " lock_wait_max_us=%" PRId64 " lock_hold_max_us=%" PRId64
+                 " internal_free_bytes=%zu internal_min_free_bytes=%zu"
+                 " psram_total_bytes=%zu psram_free_bytes=%zu psram_min_free_bytes=%zu"
+                 " psram_largest_free_block_bytes=%zu stack_min_free_bytes=%u",
+                 max_period_us, max_lock_wait_us, max_lock_hold_us,
+                 heap_caps_get_free_size(internal_caps), heap_caps_get_minimum_free_size(internal_caps),
+                 heap_caps_get_total_size(psram_caps), heap_caps_get_free_size(psram_caps),
+                 heap_caps_get_minimum_free_size(psram_caps), heap_caps_get_largest_free_block(psram_caps),
+                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        last_report_us = released_us;
+        max_period_us = max_lock_wait_us = max_lock_hold_us = 0;
+    }
+};
+
+struct LockSample {
+    RuntimeBaseline& baseline;
+    int64_t requested_us = esp_timer_get_time();
+    int64_t acquired_us = 0;
+
+    ~LockSample()
+    {
+        baseline.finishLock(requested_us, acquired_us, esp_timer_get_time());
+    }
+};
+}  // namespace
+#endif
+
 static void _stackchan_update_task(void* param)
 {
     bool is_setup_done = false;
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+    RuntimeBaseline baseline;
+#endif
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(20));
 
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+        baseline.beginIteration();
+#endif
         tools::update_reminders();
 
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+        // Declare before the lock so reporting runs after unlock, including on continue.
+        LockSample lock_sample{baseline};
+#endif
         LvglLockGuard lock;
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+        lock_sample.acquired_us = esp_timer_get_time();
+#endif
 
         if (!hal_bridge::is_xiaozhi_idle()) {
             vTaskDelay(pdMS_TO_TICKS(100));

@@ -9,7 +9,7 @@
 - [ ] **P0-01** 核對 `jason22432150/StackChan` 的 HEAD、Branch、上游差異與授權；`Evidence: 未提供`；Gate G0。
 - [x] **P0-02** 檢查 `firmware/repos.json`、Xiaozhi deps、patch 及實際 ESP-IDF 版本。 `Evidence: 35773eb（Windows，2026-11-16）；repos.json 六筆本機 HEAD 符合指定 ref；Xiaozhi v2.5.2 = 49b4380b3faa0ceadd28a3e78aaf0f311c46c57e，既有 patch 在暫存 Git index 可正向套用，結果與依賴工作樹追蹤檔完全一致，反向檢查亦通過。idf.py --version → v6.1.0，符合 dependencies.lock；idf_tools.py check-python-dependencies 通過；Ninja ESP32-S3 增量建置 39 步通過，最小 app partition 剩 27%；esptool image-info 驗證 checksum／hash，映像 ESP-IDF v6.1、ELF SHA256 d48d0c9eae777e1ac37e580d54b406e8367ed8bdedd4d44b4ccad1d19cf2dc20。未燒錄或進行 CoreS3 實機驗收。`
 - [x] **P0-03** 追蹤 Xiaozhi `Application`、音訊工作階段與安全提示音／TTS 入口，明確提出 A0/A1/A2 能力結論。 `Evidence: 04_FIRMWARE_XIAOZHI.md §5；00af989／Xiaozhi v2.5.2 + 既有 patch（2026-11-16）；原始碼追蹤對話、短提示音與 notify 路徑，ESP32-S3 ELF 八個連結符號與內建 Ogg Opus 素材驗證通過；全套 pytest 150 passed。維持 A0；A1/A2 與實機音訊搶占未驗證。`
-- [ ] **P0-04** 追蹤 `_stackchan_update_task`、LVGL lock 生命周期、Task 優先級與 PSRAM，保留基準量測；`Evidence: 未提供`。
+- [ ] **P0-04** 追蹤 `_stackchan_update_task`、LVGL lock 生命周期、Task 優先級與 PSRAM，保留基準量測。 `Evidence: 04_FIRMWARE_XIAOZHI.md §3；5c358d7 + 工作區量測程式（2026-11-16）。已追蹤 task 與 LVGL lock，加入預設關閉的診斷；Kconfig 預設值／顯式啟用與 hal.cpp 雙設定 Xtensa 物件編譯通過。待 CoreS3 執行期樣本，未結案。`
 - [ ] **P0-05** 查明 `Motion::setModifyLock`、IMU Modifier、Servo `stop()`、Yaw/Pitch 實機限制；`Evidence: 未提供`。
 - [ ] **P0-06** 確認 CoreS3 SD 挂載、圖片載入格式與失敗路徑；`Evidence: 未提供`。
 - [ ] **P0-07** 查驗 Codex 官方 Hooks／Cursor 事件及版本能力、ChatGPT/Grok 瀏覽器／UI 來源權限分級；`Evidence: 未提供`。
