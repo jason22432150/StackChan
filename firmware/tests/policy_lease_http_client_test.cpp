@@ -3,9 +3,9 @@
 #include <esp_transport_ssl.h>
 #include <iostream>
 #include <string>
+#include <stackchan/notifications/policy_lease.h>
 #include <stackchan/notifications/policy_lease_http_client.h>
 
-using stackchan::notifications::PolicyLeaseBinding;
 using stackchan::notifications::PolicyLeaseHttpClient;
 using stackchan::notifications::applyPolicyLeaseToStreamFields;
 

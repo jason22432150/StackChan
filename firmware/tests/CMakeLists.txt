@@ -87,4 +87,14 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(policy_lease_http_client_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(policy_lease_http_client_test PRIVATE cxx_std_20)
     add_test(NAME policy_lease_http_client_test COMMAND $<TARGET_FILE:policy_lease_http_client_test>)
+
+    add_executable(stream_provision_test
+        stream_provision_test.cpp
+        ../main/stackchan/notifications/stream_provision.cpp
+        ../main/stackchan/notifications/policy_lease.cpp
+        ../main/stackchan/notifications/runtime_limits.cpp
+    )
+    target_include_directories(stream_provision_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(stream_provision_test PRIVATE cxx_std_20)
+    add_test(NAME stream_provision_test COMMAND $<TARGET_FILE:stream_provision_test>)
 endif()

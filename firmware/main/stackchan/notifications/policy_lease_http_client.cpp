@@ -199,19 +199,4 @@ std::optional<PolicyLeaseBinding> PolicyLeaseHttpClient::fetch(const Config& con
     return parsePolicyLeaseJson(body, *length, now_utc_ms);
 }
 
-bool applyPolicyLeaseToStreamFields(
-    std::string& policy_version,
-    Tick& policy_expires_utc_ms,
-    const PolicyLeaseBinding& lease,
-    Tick now_utc_ms)
-{
-    PolicyLeaseBinding bound{};
-    if (!bindPolicyLease(bound, lease, now_utc_ms)) {
-        return false;
-    }
-    policy_version.assign(bound.version.data());
-    policy_expires_utc_ms = bound.expires_utc_ms;
-    return true;
-}
-
 }  // namespace stackchan::notifications

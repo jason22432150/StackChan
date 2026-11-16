@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace stackchan::notifications {
@@ -25,5 +26,12 @@ std::optional<PolicyLeaseBinding> parsePolicyLeaseJson(
 // Copies a verified lease into stream config fields. Refuses expired leases.
 bool bindPolicyLease(
     PolicyLeaseBinding& out, const PolicyLeaseBinding& lease, NotificationController::Tick now_utc_ms);
+
+// Copies a verified lease into DeviceStreamTlsClient policy fields.
+bool applyPolicyLeaseToStreamFields(
+    std::string& policy_version,
+    NotificationController::Tick& policy_expires_utc_ms,
+    const PolicyLeaseBinding& lease,
+    NotificationController::Tick now_utc_ms);
 
 }  // namespace stackchan::notifications

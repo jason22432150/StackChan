@@ -53,6 +53,8 @@ CoreS3 的 `parsePolicyLeaseJson` 接受上述 Policy JSON（固定欄位、可�
 
 `PolicyLeaseHttpClient` 以 ESP-IDF TLS transport 對 Coordinator 發出 `GET /v1/devices/{deviceId}/policy`：明確 CA、拒絕轉址／非 200、要求 `Content-Length` 與本文一致，再交給 `parsePolicyLeaseJson`；`applyPolicyLeaseToStreamFields` 填入 stream 的 `policy_version`／`policy_expires_utc_ms`。Windows transport 替身測試通過；與 loopback server 的端到端實機路徑仍待驗證。
 
+`provisionDeviceStream` 將已驗證租約與（經 `sanitizeRuntimeProfile` 的）MVP runtime profile 組成 `DeviceStreamTlsClient::Config`（含 frame／network 上限與政策欄位），Fail-Closed 於過期租約或非法 profile；本身不建立連線。
+
 P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `CORE_S3_MVP_RUNTIME_LIMITS` 對齊（capacity 4、heartbeat 4s、stability 5s、frame age 5s、frame 1024 bytes、network 10s；Coordinator heartbeat_interval 1s、pong_timeout 2s）。超出硬上限的設定 Fail-Closed。實機失聯撤銷時間仍待 R-006。
 
 CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket，固定連線到設定主機的 `/v1/device-stream`。它使用明確提供的 Coordinator CA 並保留主機名稱檢查，僅接受 HTTP 101，遇到 HTTP 轉址會關閉連線。呼叫端須在單一工作任務呼叫 `start`、`poll`、`takeNext`、`stop`，並供應已同步的時鐘、已驗證的政策快照及封包上限。單一 WebSocket 文字框可分多次 socket read 收取，超過上限或遇到 WebSocket 層分片會撤銷 session。斷線與心跳逾時同樣停權。Windows 測試使用 transport 替身，裝置憑證握手與到 Coordinator 的端到端網路路徑仍待實機驗證。
