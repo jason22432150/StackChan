@@ -532,6 +532,67 @@ class CoordinatorStore:
         ).fetchone()
         return int(row["contiguous_acked_sequence"]) if row else 0
 
+    def list_missing_sequences(self, bridge_id: str, epoch: str) -> list[int]:
+        """回傳目前已知的序號缺口（不含已清理水位內的假缺口）。"""
+        _, missing = self._recompute_sync_cursor(bridge_id, epoch)
+        return missing
+
+    def list_events_for_source_task(self, source_task_id: str) -> list[dict[str, Any]]:
+        """列出同一 source_task_id 的全部原始事件（跨 Bridge）。"""
+        rows = self._conn.execute(
+            """
+            SELECT payload_json FROM events
+            WHERE json_extract(payload_json, '$.source_task_id') = ?
+            ORDER BY ingested_at ASC, bridge_id ASC, bridge_sequence ASC
+            """,
+            (source_task_id,),
+        ).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def record_task_conflict(
+        self,
+        *,
+        task_key: str,
+        note: str,
+        event_ids: list[str],
+        mark_projection_conflict: bool,
+    ) -> None:
+        """
+        記錄跨 Bridge 矛盾證據。
+
+        不依 observed_at 覆寫真相；可選將投影標為 conflict 並清除 succeeded。
+        """
+        now = _utc_now()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            for event_id in event_ids:
+                exists = self._conn.execute(
+                    "SELECT event_id FROM events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if exists is None:
+                    continue
+                self._conn.execute(
+                    """
+                    INSERT INTO event_evidence(event_id, evidence_level, note, recorded_at)
+                    VALUES (?, 'unknown', ?, ?)
+                    """,
+                    (event_id, note, now),
+                )
+            if mark_projection_conflict:
+                self._conn.execute(
+                    """
+                    UPDATE task_projections
+                    SET status = 'conflict', succeeded = 0, updated_at = ?
+                    WHERE task_key = ?
+                    """,
+                    (now, task_key),
+                )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
     def get_task_projection(self, task_key: str) -> dict[str, Any] | None:
         row = self._conn.execute(
             """

@@ -28,7 +28,7 @@
 ## Phase 2 — 核心 MVP 的 Bridge／Coordinator／CoreS3
 
 - [x] **P2-01** Windows Bridge CLI 基本執行、受授權 Codex／Cursor Adapter、證據等級、事件格式轉換。`Evidence: src/stackchan/adapters（Codex／Cursor）；bridge/service.py＋cli.py；agent-turn-complete／stop→response.completed（不推導 succeeded）；白名單 source_payload；uv run pytest tests/adapters tests/bridge … -q → 133 passed（含回歸，2026-11-16）。尚未做真實網路上傳（P2-02）／未改韌體。`
-- [ ] **P2-02** 追加式批次同步、ACK 缺口、重送冪等、時鐘偏差測試；Gate G2。
+- [x] **P2-02** 追加式批次同步、ACK 缺口、重送冪等、時鐘偏差測試；Gate G2。`Evidence: src/stackchan/sync（BridgeSyncClient／CoordinatorSyncApi／InMemoryTransport／clock）；ACK 丟失重送冪等、序號缺口游標、SUSPENDED Fail-Closed、跨 Bridge 時鐘不 LWW；uv run pytest tests/sync … -q → 142 passed（含回歸，2026-11-16）。尚未部署真實 HTTPS。`
 - [ ] **P2-03** Coordinator 基本優先排程、TTL、Fail-Closed、穩定重連與異常診斷。
 - [ ] **P2-04** CoreS3 建立安全 NotificationController、有限 RAM 佇列及 policy lease。
 - [ ] **P2-05** CoreS3 ResourceArbiter、Generation Token、取消確認、舊 callback 失效。
