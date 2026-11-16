@@ -28,3 +28,12 @@ add_executable(notification_controller_test
 target_include_directories(notification_controller_test PRIVATE ../main)
 target_compile_features(notification_controller_test PRIVATE cxx_std_17)
 add_test(NAME notification_controller_test COMMAND $<TARGET_FILE:notification_controller_test>)
+
+add_executable(device_stream_ingress_test
+    device_stream_ingress_test.cpp
+    ../main/stackchan/notifications/device_stream_ingress.cpp
+    ../main/stackchan/notifications/notification_controller.cpp
+)
+target_include_directories(device_stream_ingress_test PRIVATE ../main)
+target_compile_features(device_stream_ingress_test PRIVATE cxx_std_17)
+add_test(NAME device_stream_ingress_test COMMAND $<TARGET_FILE:device_stream_ingress_test>)
