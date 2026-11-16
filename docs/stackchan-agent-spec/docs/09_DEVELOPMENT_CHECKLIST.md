@@ -7,7 +7,7 @@
 ## Phase 0 — 前置技術調查／實作授權前
 
 - [ ] **P0-01** 核對 `jason22432150/StackChan` 的 HEAD、Branch、上游差異與授權；`Evidence: 未提供`；Gate G0。
-- [ ] **P0-02** 檢查 `firmware/repos.json`、Xiaozhi deps、patch 及實際 ESP-IDF 版本；`Evidence: 未提供`。
+- [x] **P0-02** 檢查 `firmware/repos.json`、Xiaozhi deps、patch 及實際 ESP-IDF 版本。 `Evidence: 35773eb（Windows，2026-11-16）；repos.json 六筆本機 HEAD 符合指定 ref；Xiaozhi v2.5.2 = 49b4380b3faa0ceadd28a3e78aaf0f311c46c57e，既有 patch 在暫存 Git index 可正向套用，結果與依賴工作樹追蹤檔完全一致，反向檢查亦通過。idf.py --version → v6.1.0，符合 dependencies.lock；idf_tools.py check-python-dependencies 通過；Ninja ESP32-S3 增量建置 39 步通過，最小 app partition 剩 27%；esptool image-info 驗證 checksum／hash，映像 ESP-IDF v6.1、ELF SHA256 d48d0c9eae777e1ac37e580d54b406e8367ed8bdedd4d44b4ccad1d19cf2dc20。未燒錄或進行 CoreS3 實機驗收。`
 - [ ] **P0-03** 追蹤 Xiaozhi `Application`、音訊工作階段與安全提示音／TTS 入口，明確提出 A0/A1/A2 能力結論；`Evidence: 未提供`。
 - [ ] **P0-04** 追蹤 `_stackchan_update_task`、LVGL lock 生命周期、Task 優先級與 PSRAM，保留基準量測；`Evidence: 未提供`。
 - [ ] **P0-05** 查明 `Motion::setModifyLock`、IMU Modifier、Servo `stop()`、Yaw/Pitch 實機限制；`Evidence: 未提供`。
