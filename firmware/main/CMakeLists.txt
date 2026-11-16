@@ -27,6 +27,7 @@ file(GLOB_RECURSE STACK_CHAN_SOURCES
     "stackchan/*.cpp"
 )
 # P2-04：明確釘住 notifications 翻譯單元，避免舊 build 快取漏掉（見 compile_commands 曾為 0）。
+# link_anchor.cpp：在尚無執行期呼叫端時，以 used+retain 擋住 --gc-sections 丟棄。
 set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/notification_controller.cpp"
     "stackchan/notifications/device_stream_ingress.cpp"
@@ -38,6 +39,7 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/stream_bootstrap.cpp"
     "stackchan/notifications/stream_provision.cpp"
     "stackchan/notifications/stream_session_start.cpp"
+    "stackchan/notifications/link_anchor.cpp"
 )
 list(APPEND STACK_CHAN_SOURCES ${STACK_CHAN_NOTIFICATION_SOURCES})
 list(REMOVE_DUPLICATES STACK_CHAN_SOURCES)
@@ -352,6 +354,9 @@ idf_component_register(SRCS ${SOURCES}
                         mooncake_log
                         smooth_ui_toolkit
                     )
+
+# P2-04：強制保留 notifications MVP 進入點，避免 --gc-sections 在尚無執行期呼叫端時丟棄。
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-u stackchan_notifications_mvp_retain")
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_23)
 target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++23>)
