@@ -53,7 +53,14 @@ void initNotificationProductRuntime()
 bool armNotificationProductRuntime(const StreamProvision& provision)
 {
     auto& rt = runtime();
-    if (!rt.ready) {
+    const auto& profile = provision.profile;
+    // The client already owns fixed controller and frame-age limits.
+    if (!rt.ready || profile.controller.capacity != rt.profile.controller.capacity ||
+        profile.controller.heartbeat_timeout_ms != rt.profile.controller.heartbeat_timeout_ms ||
+        profile.controller.stability_ms != rt.profile.controller.stability_ms ||
+        profile.max_frame_age_ms != rt.profile.max_frame_age_ms ||
+        profile.max_frame_bytes != rt.profile.max_frame_bytes ||
+        profile.network_timeout_ms != rt.profile.network_timeout_ms) {
         return false;
     }
     return armProvisionedDeviceStream(rt.client, provision);

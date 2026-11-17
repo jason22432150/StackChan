@@ -201,6 +201,13 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
 
     add_executable(start_provisioned_stream_test
         start_provisioned_stream_test.cpp
+        ../main/stackchan/notifications/notification_product_runtime.cpp
+        ../main/stackchan/notifications/notification_product_loop.cpp
+        ../main/stackchan/notifications/notification_product_loop_poll.cpp
+        ../main/stackchan/notifications/notification_presenter.cpp
+        ../main/stackchan/notifications/fail_closed_guard.cpp
+        ../main/stackchan/notifications/resource_arbiter.cpp
+        ../main/stackchan/notifications/presentation_receipt.cpp
         ../main/stackchan/notifications/stream_session_start.cpp
         ../main/stackchan/notifications/stream_bootstrap.cpp
         ../main/stackchan/notifications/stream_provision.cpp

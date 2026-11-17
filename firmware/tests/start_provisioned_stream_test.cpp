@@ -7,8 +7,14 @@
 #include <esp_transport_ws.h>
 #include <iostream>
 #include <string>
+#include <stackchan/notifications/notification_lvgl_hooks.h>
+#include <stackchan/notifications/notification_product_runtime.h>
 #include <stackchan/notifications/stream_bootstrap.h>
 #include <stackchan/notifications/stream_session_start.h>
+
+namespace stackchan::notifications {
+LvglLockHooks makeHalLvglLockHooks() { return {}; }
+}  // namespace stackchan::notifications
 
 using stackchan::notifications::DeviceStreamTlsClient;
 using stackchan::notifications::PolicyLeaseHttpClient;
@@ -207,4 +213,48 @@ int main()
     }
 
     expect(armProvisionedDeviceStreamLinked(), "arm link retain probe");
+
+    using stackchan::notifications::armNotificationProductRuntime;
+    using stackchan::notifications::initNotificationProductRuntime;
+    using stackchan::notifications::isNotificationProductStreamArmed;
+    const int calls_before_arm = connect_calls;
+    expect(!armNotificationProductRuntime(*provision), "runtime rejects arm before init");
+    initNotificationProductRuntime();
+    expect(connect_calls == calls_before_arm && !isNotificationProductStreamArmed(),
+           "runtime init leaves stream idle without a connection attempt");
+    phase = Phase::Stream;
+    http_status = 101;
+
+    // Each mismatch is within generic limits and tested independently.
+    const auto reject = [&](const auto& profile) {
+        auto candidate = *provision;
+        candidate.profile = profile;
+        candidate.config.max_frame_bytes = profile.max_frame_bytes;
+        candidate.config.network_timeout_ms = profile.network_timeout_ms;
+        expect(!armNotificationProductRuntime(candidate), "runtime rejects a non-MVP profile");
+        expect(connect_calls == calls_before_arm && !isNotificationProductStreamArmed(),
+               "profile mismatch leaves runtime idle without a connection attempt");
+    };
+    auto profile = request.profile;
+    profile.controller.capacity--;
+    reject(profile);
+    profile = request.profile;
+    profile.controller.heartbeat_timeout_ms++;
+    reject(profile);
+    profile = request.profile;
+    profile.controller.stability_ms--;
+    reject(profile);
+    profile = request.profile;
+    profile.max_frame_age_ms++;
+    reject(profile);
+    profile = request.profile;
+    profile.max_frame_bytes++;
+    reject(profile);
+    profile = request.profile;
+    profile.network_timeout_ms++;
+    reject(profile);
+
+    expect(armNotificationProductRuntime(*provision), "runtime arms with the MVP profile");
+    expect(isNotificationProductStreamArmed() && connect_calls == calls_before_arm + 1,
+           "matching profile upgraded exactly once");
 }

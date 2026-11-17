@@ -19,7 +19,7 @@ void initNotificationProductRuntime();
 
 /**
  * 以已驗證 provision 武裝產品 runtime 的 DeviceStreamTlsClient。
- * Fail-Closed：未 init、已 started、或 provision／upgrade 無效 → false。
+ * Fail-Closed：未 init、已 started、profile 與 CoreS3 MVP 不符、或 provision／upgrade 無效 → false。
  */
 bool armNotificationProductRuntime(const StreamProvision& provision);
 
