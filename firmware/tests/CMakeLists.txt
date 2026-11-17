@@ -37,6 +37,14 @@ target_include_directories(resource_arbiter_test PRIVATE ../main)
 target_compile_features(resource_arbiter_test PRIVATE cxx_std_17)
 add_test(NAME resource_arbiter_test COMMAND $<TARGET_FILE:resource_arbiter_test>)
 
+add_executable(presentation_receipt_test
+    presentation_receipt_test.cpp
+    ../main/stackchan/notifications/presentation_receipt.cpp
+)
+target_include_directories(presentation_receipt_test PRIVATE ../main)
+target_compile_features(presentation_receipt_test PRIVATE cxx_std_17)
+add_test(NAME presentation_receipt_test COMMAND $<TARGET_FILE:presentation_receipt_test>)
+
 add_executable(runtime_limits_test
     runtime_limits_test.cpp
     ../main/stackchan/notifications/runtime_limits.cpp

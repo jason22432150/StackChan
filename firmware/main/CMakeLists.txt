@@ -31,6 +31,7 @@ file(GLOB_RECURSE STACK_CHAN_SOURCES
 set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/notification_controller.cpp"
     "stackchan/notifications/resource_arbiter.cpp"
+    "stackchan/notifications/presentation_receipt.cpp"
     "stackchan/notifications/device_stream_ingress.cpp"
     "stackchan/notifications/device_stream_json.cpp"
     "stackchan/notifications/device_stream_tls_client.cpp"
