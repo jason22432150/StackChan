@@ -4,7 +4,8 @@ project(stackchan_firmware_tests LANGUAGES CXX)
 
 enable_testing()
 
-foreach(target notification_product_task_test notification_product_task_disabled_test)
+foreach(target notification_product_task_test notification_product_task_disabled_test
+               notification_product_task_diagnostics_test)
     add_executable(${target}
         notification_product_task_test.cpp
         ../main/stackchan/notifications/notification_product_task.cpp
@@ -14,6 +15,9 @@ foreach(target notification_product_task_test notification_product_task_disabled
     add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
 endforeach()
 target_compile_definitions(notification_product_task_test PRIVATE CONFIG_STACKCHAN_AGENT_NOTIFICATIONS=1)
+target_compile_definitions(notification_product_task_diagnostics_test PRIVATE
+    CONFIG_STACKCHAN_AGENT_NOTIFICATIONS=1 CONFIG_STACKCHAN_RUNTIME_BASELINE=1
+)
 
 foreach(target notification_credentials_test notification_credentials_unencrypted_test)
     add_executable(${target}

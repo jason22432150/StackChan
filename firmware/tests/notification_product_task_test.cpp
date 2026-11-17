@@ -5,6 +5,13 @@
 #include <stackchan/notifications/notification_product_runtime.h>
 #include <stackchan/notifications/notification_product_task.h>
 #include <stackchan/notifications/notification_utc_clock.h>
+#include <string_view>
+#include <vector>
+
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+#include <esp_heap_caps.h>
+#include <esp_log.h>
+#endif
 
 using stackchan::notifications::publishNotificationXiaozhiBusy;
 using stackchan::notifications::NotificationStreamRequestResult;
@@ -25,6 +32,9 @@ unsigned initialized = 0;
 unsigned bootstrapped = 0;
 unsigned polled = 0;
 unsigned delays = 0;
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+std::vector<std::string_view> resource_phases;
+#endif
 
 void expect(bool passed, const char* message)
 {
@@ -68,6 +78,42 @@ void vTaskDelete(TaskHandle_t task)
     ++deleted;
 }
 
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+unsigned uxTaskGetStackHighWaterMark(TaskHandle_t task)
+{
+    expect(task == nullptr, "sample the notification task's own stack");
+    return 1536;
+}
+
+std::size_t heap_caps_get_free_size(unsigned caps)
+{
+    expect(caps == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT), "sample internal 8-bit heap");
+    return 6000;
+}
+
+std::size_t heap_caps_get_minimum_free_size(unsigned caps)
+{
+    expect(caps == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT), "sample internal heap minimum since boot");
+    return 4000;
+}
+
+std::size_t heap_caps_get_largest_free_block(unsigned caps)
+{
+    expect(caps == (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT), "sample largest contiguous internal block");
+    return 3072;
+}
+
+void ESP_LOGI(const char* tag, const char* format, const char* phase, unsigned stack,
+              std::size_t free, std::size_t minimum, std::size_t largest)
+{
+    expect(std::string_view(tag) == "AgentNotify" && std::string_view(format).starts_with("AGENT_NOTIFY_RESOURCE "),
+           "use the fixed resource log tag and prefix");
+    expect(stack == 1536 && free == 6000 && minimum == 4000 && largest == 3072,
+           "log resource samples in bytes");
+    resource_phases.emplace_back(phase);
+}
+#endif
+
 std::int64_t esp_timer_get_time() { return 123456; }
 
 namespace stackchan::notifications {
@@ -110,6 +156,9 @@ int main()
            "retry accepts the largest valid generation");
     expect(initialized == 0 && bootstrapped == 0 && polled == 0, "caller does not run the runtime or TLS");
     expect(!requestNotificationProductStream(9) && created == 2, "pending worker rejects a duplicate");
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+    expect(resource_phases.empty(), "rejected and queued requests log no worker resource samples");
+#endif
     runScheduledTask();
     expect(initialized == 1 && bootstrapped == 1 && bootstrapped_generation == generation &&
                polled == 0 && deleted == 1,
@@ -127,6 +176,12 @@ int main()
     expect(requestNotificationProductStream(27), "disconnect allows an explicit new request");
     runScheduledTask();
     expect(bootstrapped_generation == 27 && polled == 2 && deleted == 3, "no automatic reconnect");
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+    expect(resource_phases == std::vector<std::string_view>{
+               "bootstrap_failed", "upgraded", "disconnected", "bootstrap_failed",
+           },
+           "sample exactly once at each worker transition");
+#endif
 #else
     expect(!requestNotificationProductStream(7) && created == 0, "disabled feature does not create tasks");
     expect(requestConfiguredNotificationProductStream("7") == NotificationStreamRequestResult::Rejected && created == 0,

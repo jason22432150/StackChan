@@ -11,6 +11,11 @@
 #include <new>
 #include <sdkconfig.h>
 
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS && CONFIG_STACKCHAN_RUNTIME_BASELINE
+#include <esp_heap_caps.h>
+#include <esp_log.h>
+#endif
+
 namespace stackchan::notifications {
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
 namespace {
@@ -19,13 +24,30 @@ std::atomic<bool> xiaozhi_busy{true};
 constexpr unsigned kWorkerStackBytes = 8192;
 constexpr unsigned kWorkerPriority = 2;
 
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+void logNotificationResources(const char* phase)
+{
+    constexpr auto internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    ESP_LOGI("AgentNotify",
+             "AGENT_NOTIFY_RESOURCE phase=%s stack_min_free_bytes=%u"
+             " internal_free_bytes=%zu internal_min_since_boot_bytes=%zu internal_largest_block_bytes=%zu",
+             phase, static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
+             heap_caps_get_free_size(internal_caps), heap_caps_get_minimum_free_size(internal_caps),
+             heap_caps_get_largest_free_block(internal_caps));
+}
+#endif
+
 void runNotificationProductStream(void* argument)
 {
     auto* request = static_cast<std::uint64_t*>(argument);
     const auto generation = *request;
     delete request;
     initNotificationProductRuntime();
-    if (fetchAndArmNotificationProductRuntime(generation)) {
+    const bool upgraded = fetchAndArmNotificationProductRuntime(generation);
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+    logNotificationResources(upgraded ? "upgraded" : "bootstrap_failed");
+#endif
+    if (upgraded) {
         while (isNotificationProductStreamArmed()) {
             const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
             tickNotificationProductRuntime(now_ms, notificationUtcMs(), xiaozhi_busy.load());
@@ -33,6 +55,9 @@ void runNotificationProductStream(void* argument)
                 vTaskDelay(pdMS_TO_TICKS(20));
             }
         }
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+        logNotificationResources("disconnected");
+#endif
     }
     worker_active.clear();
     vTaskDelete(nullptr);
