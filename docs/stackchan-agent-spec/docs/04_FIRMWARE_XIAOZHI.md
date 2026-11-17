@@ -76,7 +76,9 @@ P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；
 
 `loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。產品端由呼叫端明確呼叫 `fetchAndArmNotificationProductRuntime`，傳入 Coordinator 的 generation。入口先檢查 runtime 已初始化、尚未連線，且本次開機已收到既有 SNTP 同步回呼。只有 RTC 或正值的系統時鐘時，入口不讀憑證也不連線。同步確認在同一次開機保留。通過檢查後，入口取樣系統 UTC 毫秒、讀憑證、透過 TLS 取得 policy，再以同一組憑證及已驗證的租約升級 WebSocket。通知 tick 使用同一個 UTC 毫秒來源。初始化與閒置 tick 不會讀取憑證或發起連線。本機操作透過 `requestNotificationProductStream(generation)` 接入。只有啟用通知功能、時鐘已同步且沒有執行中的任務時才接受。FreeRTOS 專用任務依序初始化、握手與輪詢，斷線或啟動失敗即退出，下一次連線需重新請求。顯示更新迴圈只傳遞 Xiaozhi 忙碌狀態。專用任務暫採 8 KiB stack，實機須量測剩餘 stack 與內部 heap。啟用通知的建置在 SETUP → Agent Notifications 提供 Connect notifications。需在建置設定 `STACKCHAN_AGENT_COORDINATOR_GENERATION` 填入與 Coordinator 相符的 1 到 20 位十進位數字（uint64）。開啟頁面不會連線，只有點選才送出請求。提示只回報請求已送出或遭拒。憑證寫入、實機點選與握手仍待驗收。
 
-加密 NVS 建置的 HAL 啟動會先向 ESP-IDF 已註冊的預設 provider 讀取既有金鑰。讀取成功才呼叫 `nvs_flash_secure_init`，返回前清除暫存金鑰。金鑰缺失、讀取錯誤或初始化失敗時回報原錯誤並停止啟動。此路徑略過 `nvs_flash_init` 的自動金鑰產生，也不會因空頁不足或資料版本不符而清除整個分割區。未加密建置沿用既有的自動復原。實機驗收前須確認現有資料的備份與回復方式、金鑰已佈建，以及預設 NVS 資料與加密設定相容。
+P2-04 產品與實機驗收沿用預設 NVS 的既有分割表、資料格式與原廠初始化行為。通知功能不依賴 eFuse 寫入，也不在預設 NVS 持久保存通知 token。後續由本機明確配對取得短效通知憑證，裝置端只保存在 RAM。缺少憑證、到期或重啟後須重新取得有效憑證才能發起通知連線。RAM 佈建與生命週期仍待實作及驗收。
+
+加密 NVS 建置保留作為先前的離線連結證據。該設定下，HAL 啟動先向 ESP-IDF 已註冊的預設 provider 讀取既有金鑰。讀取成功才呼叫 `nvs_flash_secure_init`，返回前清除暫存金鑰。金鑰缺失、讀取錯誤或初始化失敗時回報原錯誤並停止啟動。未加密建置沿用既有的自動復原。
 
 燒錄前可用 `firmware/verify_nvs_backup.py` 離線比對兩份獨立擷取的原始 NVS 備份。工具依裝置對應的 CSV 分割表核對長度，拒絕全零／全擦除樣本與同一檔案的別名，並回報 offset、大小和 SHA-256。可用 `--binary-partition-table` 指定實際擷取的分割表，接受 0xC00 bytes 的表或 0x1000 bytes 的完整 sector。工具核對表內 MD5 與 NVS 範圍，搭配 `--show-partition` 可在取得 NVS 備份前查出 offset 與大小。若使用 CSV，可用 `--partition-table` 指定與裝置相符的表。[ESP-IDF 分割表格式](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/partition-tables.html)。備份可能包含配對或 Wi-Fi 資料，應保存在受保護的位置。相同摘要只能證明輸入一致，分割表來源、裝置身分、金鑰狀態與可回復性仍須另外確認。
 
@@ -94,7 +96,7 @@ $sdkconfigPath = Join-Path $buildDir 'sdkconfig'
 idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.p204-notifications' build
 ```
 
-此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，憑證載入會 Fail-Closed。這組映像驗證編譯、連結與分割區容量。正向連線驗收仍需另行確認 NVS 加密與佈建方案。
+此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，目前的憑證載入路徑會 Fail-Closed。這組映像已用於驗證編譯、連結與分割區容量。正向連線驗收需完成短效 RAM 憑證佈建。
 
 要驗證加密 NVS 的完整編譯與連結，可在同一 ESP-IDF 環境用第三份 defaults 建置至另一個目錄。此設定將 ESP32-S3 的 HMAC provider 與通知路徑連結至同一映像。金鑰 ID `0` 是建置測試輸入，實機的金鑰槽、既有 NVS 資料及回復方案須另行確認。
 
@@ -118,8 +120,10 @@ $summary = $output -join "`n"
 $start = $summary.IndexOf('{')
 if ($start -lt 0) { throw 'JSON summary missing' }
 [IO.File]::WriteAllText($report, $summary.Substring($start))
-python -m firmware.verify_nvs_efuse $report --key-id 0
+python -m firmware.verify_nvs_efuse $report --sdkconfig firmware/build/p204-nvs-linkcheck/sdkconfig
 ```
+
+`--sdkconfig` 會從目標映像的建置設定取得金鑰槽。摘要須包含該槽對應的 `KEY_PURPOSE_<ID>`。若單獨檢查指定槽位，可改用 `--key-id`。
 
 ## 4. 狀態仲裁矩陣
 

@@ -30,6 +30,39 @@ def _mask(report: dict[str, object], name: str, width: int) -> int:
     return value
 
 
+def key_id_from_sdkconfig(path: Path) -> int:
+    """Read the effective ESP32-S3 HMAC slot from an ESP-IDF sdkconfig."""
+    expected = {
+        "CONFIG_IDF_TARGET": '"esp32s3"',
+        "CONFIG_NVS_ENCRYPTION": "y",
+        "CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC": "y",
+    }
+    key_setting = "CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID"
+    other_providers = {"CONFIG_NVS_SEC_KEY_PROTECT_NONE", "CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC"}
+    tracked = expected.keys() | other_providers | {key_setting}
+    settings: dict[str, str] = {}
+    with path.open(encoding="utf-8") as source:
+        for line in source:
+            name, separator, value = line.strip().partition("=")
+            if not separator and name.startswith("# ") and name.endswith(" is not set"):
+                name, value = name.removeprefix("# ").removesuffix(" is not set"), "n"
+            elif not separator:
+                continue
+            if name not in tracked:
+                continue
+            if name in settings:
+                raise ValueError("duplicate NVS or target setting in sdkconfig")
+            settings[name] = value
+    if any(settings.get(name) != value for name, value in expected.items()) or any(
+        settings.get(name, "n") != "n" for name in other_providers
+    ):
+        raise ValueError("sdkconfig must target ESP32-S3 and enable HMAC-backed NVS encryption")
+    key_id = settings.get(key_setting)
+    if key_id not in ("0", "1", "2", "3", "4", "5"):
+        raise ValueError("sdkconfig must select an ESP32-S3 HMAC key ID between 0 and 5")
+    return int(key_id)
+
+
 def check_hmac_slot(report: object, key_id: int) -> tuple[str, ...]:
     """Return the unmet requirements for the selected ESP32-S3 key slot."""
     if type(key_id) is not int or not 0 <= key_id <= 5:
@@ -55,20 +88,28 @@ def check_hmac_slot(report: object, key_id: int) -> tuple[str, ...]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summary", type=Path)
-    parser.add_argument("--key-id", type=int, choices=range(6), required=True)
+    selector = parser.add_mutually_exclusive_group(required=True)
+    selector.add_argument("--key-id", type=int, choices=range(6))
+    selector.add_argument("--sdkconfig", type=Path, help="generated sdkconfig for the target image")
     args = parser.parse_args(argv)
+    try:
+        key_id = key_id_from_sdkconfig(args.sdkconfig) if args.sdkconfig is not None else args.key_id
+    except (OSError, UnicodeError):
+        parser.error("could not read sdkconfig as UTF-8")
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         with args.summary.open(encoding="utf-8") as source:
             report = json.load(source, object_pairs_hook=_unique_fields)
-        failures = check_hmac_slot(report, args.key_id)
+        failures = check_hmac_slot(report, key_id)
     except (OSError, UnicodeError, json.JSONDecodeError):
         parser.error("could not read eFuse summary as UTF-8 JSON")
     except ValueError as exc:
         parser.error(str(exc))
     if failures:
-        print(f"ESP32-S3 key ID {args.key_id}: " + "; ".join(failures))
+        print(f"ESP32-S3 key ID {key_id}: " + "; ".join(failures))
         return 1
-    print(f"ESP32-S3 key ID {args.key_id}: HMAC_UP, read-protected, write-protected")
+    print(f"ESP32-S3 key ID {key_id}: HMAC_UP, read-protected, write-protected")
     return 0
 
 

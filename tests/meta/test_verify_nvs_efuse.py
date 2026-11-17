@@ -4,7 +4,16 @@ import json
 
 import pytest
 
-from firmware.verify_nvs_efuse import check_hmac_slot, main
+from firmware.verify_nvs_efuse import check_hmac_slot, key_id_from_sdkconfig, main
+
+
+SDKCONFIG = (
+    'CONFIG_IDF_TARGET="esp32s3"\n'
+    "CONFIG_NVS_ENCRYPTION=y\n"
+    "CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y\n"
+    "# CONFIG_NVS_SEC_KEY_PROTECT_NONE is not set\n"
+    "CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=5\n"
+)
 
 
 def summary(key_id: int, purpose: str = "HMAC_UP") -> dict:
@@ -72,3 +81,42 @@ def test_cli_exit_status_and_no_report_values(tmp_path, capsys):
         main(args)
     assert exc.value.code == 2
     assert "duplicate fields" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("config", "error"),
+    [
+        (SDKCONFIG.replace('"esp32s3"', '"esp32"'), "must target ESP32-S3"),
+        (SDKCONFIG.replace("CONFIG_NVS_ENCRYPTION=y", "# CONFIG_NVS_ENCRYPTION is not set"), "enable HMAC"),
+        (SDKCONFIG.replace("CONFIG_NVS_SEC_KEY_PROTECT_USING_HMAC=y\n", ""), "enable HMAC"),
+        (SDKCONFIG + "CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y\n", "enable HMAC"),
+        (SDKCONFIG.replace("KEY_ID=5", "KEY_ID=-1"), "key ID between"),
+        (SDKCONFIG.replace("KEY_ID=5", "KEY_ID=6"), "key ID between"),
+        (SDKCONFIG.replace("CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=5\n", ""), "key ID between"),
+        (SDKCONFIG + "CONFIG_NVS_SEC_HMAC_EFUSE_KEY_ID=1\n", "duplicate"),
+        (SDKCONFIG + "# CONFIG_NVS_ENCRYPTION is not set\n", "duplicate"),
+    ],
+)
+def test_sdkconfig_rejects_ambiguous_or_incompatible_settings(tmp_path, config, error):
+    path = tmp_path / "sdkconfig"
+    path.write_text(config, encoding="utf-8")
+    with pytest.raises(ValueError, match=error):
+        key_id_from_sdkconfig(path)
+
+
+def test_cli_sdkconfig_checks_only_the_configured_slot(tmp_path, capsys):
+    config = tmp_path / "sdkconfig"
+    config.write_text(SDKCONFIG, encoding="utf-8")
+    path = tmp_path / "summary.json"
+    args = [str(path), "--sdkconfig", str(config)]
+    path.write_text(json.dumps(summary(5)), encoding="utf-8")
+    assert main(args) == 0
+    assert "key ID 5" in capsys.readouterr().out
+    path.write_text(json.dumps(summary(0)), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        main(args)
+    assert exc.value.code == 2
+    assert "filtered to the selected purpose" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        main([*args, "--key-id", "0"])
+    assert exc.value.code == 2
