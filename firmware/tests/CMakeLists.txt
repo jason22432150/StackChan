@@ -4,6 +4,14 @@ project(stackchan_firmware_tests LANGUAGES CXX)
 
 enable_testing()
 
+foreach(target hal_nvs_init_test hal_nvs_init_encrypted_test)
+    add_executable(${target} hal_nvs_init_test.cpp)
+    target_include_directories(${target} PRIVATE nvs_fakes ../main)
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
+endforeach()
+target_compile_definitions(hal_nvs_init_encrypted_test PRIVATE CONFIG_NVS_ENCRYPTION=1)
+
 foreach(target notification_product_task_test notification_product_task_disabled_test
                notification_product_task_diagnostics_test)
     add_executable(${target}
