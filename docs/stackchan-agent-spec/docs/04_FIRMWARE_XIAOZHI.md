@@ -37,7 +37,9 @@
 
 `CoordinatorTransport`（連線、心跳、接收與回報）→ `NotificationController`（Fail-Closed、排程、TTL、Generation）→ `ResourceArbiter`（受控 UI／Audio／Motion Lease）→ `NotificationPresenter`、`AudioAdapter`、`MotionAdapter`。Xiaozhi 是資源優先層，不是 NotificationController 的子功能。裝置端只維持 RAM 暫態，保存必要裝置設定／配對憑證但不保存通知歷史。
 
-P2-05 已落地獨立 `ResourceArbiter`（`resource_arbiter.h／.cpp`）：以 Generation Token 授權 UI／Audio／Motion 租約；`mayCommit`／`resourceArbiterCommitGate` 是可見效果提交閘門（T-SEC-03）；`cancelCurrent`／`revokeAll` 同步撤銷並立即回傳取消確認，不等待子系統 ACK；`onXiaozhiActivity(Busy)` 立即撤銷通知 Audio／Motion 並讓出 UI，Idle 後同一 Generation 可重取。host CTest 覆蓋上述行為；`link_anchor` 保留 `resourceArbiterCommitGate` 符號且不啟動執行期路徑。尚未接上 Presenter／原廠 LVGL／Audio／Servo（P2-06）。
+P2-05 已落地獨立 `ResourceArbiter`（`resource_arbiter.h／.cpp`）：以 Generation Token 授權 UI／Audio／Motion 租約；`mayCommit`／`resourceArbiterCommitGate` 是可見效果提交閘門（T-SEC-03）；`cancelCurrent`／`revokeAll` 同步撤銷並立即回傳取消確認，不等待子系統 ACK；`onXiaozhiActivity(Busy)` 立即撤銷通知 Audio／Motion 並讓出 UI，Idle 後同一 Generation 可重取。host CTest 覆蓋上述行為；`link_anchor` 保留 `resourceArbiterCommitGate` 符號且不啟動執行期路徑。
+
+P2-06 已落地 `NotificationPresenter`＋`LvglLockedUiPort`＋`makeHalLvglLockHooks`：中性／成功通知必須經 UI 租約與 mayCommit；所有 show／clear 走與 `LvglLockGuard` 相同的 Hal LVGL lock；Xiaozhi Busy 拒絕 present 並清屏。`ShowNotification()` 仍為空實作，尚未掛入 `StackChanAvatarDisplay`（避免未授權改動原廠顯示路徑）。
 
 P2-07 已落地 `PresentationReceiptTracker`＋`encodePresentationReceiptJson`：裝置端產生 accepted／started／completed／interrupted／cancelled／failed 收據；相同 receipt_id 轉移與 Coordinator 多次 ACK 冪等；compact JSON 對齊 `presentation-receipt.schema.json`（金樣契約測試）。`link_anchor` 保留編碼進入點且不啟動網路／UI。尚未由 Presenter 驅動或經 HTTP／stream 上報。
 
