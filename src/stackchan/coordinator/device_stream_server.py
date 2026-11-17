@@ -6,6 +6,7 @@ import asyncio
 import ssl
 from datetime import datetime, timezone
 from http import HTTPStatus
+from ipaddress import IPv4Address, IPv4Network
 from math import isfinite
 from sqlite3 import Error as DatabaseError
 
@@ -19,6 +20,27 @@ from stackchan.coordinator.device_stream import encode_heartbeat, encode_notific
 from stackchan.coordinator.dispatch import NotificationDispatcher
 from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
 from stackchan.coordinator.policy_lease_server import build_device_policy_response
+
+_PRIVATE_LAN = tuple(map(IPv4Network, ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")))
+
+
+def validate_device_listener(host: str, device_ip: str | None) -> None:
+    """Allow loopback or an explicit private IPv4 listener with one allowed peer."""
+    if host == "127.0.0.1":
+        if device_ip is not None:
+            raise ValueError("--device-ip requires a LAN listener")
+        return
+
+    if device_ip is None:
+        raise ValueError("a LAN listener requires --device-ip")
+    try:
+        addresses = (IPv4Address(host), IPv4Address(device_ip))
+    except ValueError:
+        raise ValueError("LAN listener and device must use literal private IPv4 addresses") from None
+    if not all(any(address in network for network in _PRIVATE_LAN) for address in addresses):
+        raise ValueError("LAN listener and device must use RFC 1918 IPv4 addresses")
+    if addresses[0] == addresses[1]:
+        raise ValueError("LAN listener and device must use different addresses")
 
 
 def _device_credentials(headers: Headers) -> tuple[str, str, str] | None:
@@ -45,8 +67,11 @@ def serve_device_stream(
     heartbeat_interval: float,
     pong_timeout: float,
     policy_leases: DevicePolicyLeaseService | None = None,
+    host: str = "127.0.0.1",
+    device_ip: str | None = None,
 ) -> serve:
-    """Create a loopback TLS server, optionally serving device policy on the same port."""
+    """Create a TLS server, optionally serving device policy on the same port."""
+    validate_device_listener(host, device_ip)
     if tls.protocol != ssl.PROTOCOL_TLS_SERVER or tls.minimum_version < ssl.TLSVersion.TLSv1_2:
         raise ValueError("device stream requires a TLS server context with TLS 1.2 or newer")
     if not all(isfinite(value) and value > 0 for value in (heartbeat_interval, pong_timeout)):
@@ -57,6 +82,9 @@ def serve_device_stream(
         raise ValueError("device stream generation must be a uint64")
 
     def process_request(socket: ServerConnection, request: Request) -> Response | None:
+        peer = socket.remote_address
+        if device_ip is not None and (not peer or peer[0] != device_ip):
+            return socket.respond(HTTPStatus.FORBIDDEN, "Forbidden\n")
         if request.path != "/v1/device-stream":
             if policy_leases is not None:
                 authorization = request.headers.get_all("Authorization")
@@ -139,6 +167,6 @@ def serve_device_stream(
             dispatcher.disconnect(device, session)
 
     return serve(
-        handle, "127.0.0.1", port, ssl=tls, process_request=process_request, origins=[None],
+        handle, host, port, ssl=tls, process_request=process_request, origins=[None],
         compression=None, ping_interval=None, max_size=1024, max_queue=1, close_timeout=1,
     )
