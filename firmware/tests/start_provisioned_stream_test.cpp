@@ -10,6 +10,7 @@
 #include <string>
 #include <stackchan/notifications/notification_credentials.h>
 #include <stackchan/notifications/notification_lvgl_hooks.h>
+#include <stackchan/notifications/notification_pairing_client.h>
 #include <stackchan/notifications/notification_product_runtime.h>
 #include <stackchan/notifications/notification_utc_clock.h>
 #include <stackchan/notifications/stream_bootstrap.h>
@@ -46,6 +47,7 @@ std::string ca, host, written, ws_path, ws_headers, http_response;
 int connect_result = 0;
 int http_status = 101;
 int connect_calls = 0;
+int last_connect_port = 0;
 NotificationUtcClock notification_clock;
 std::uint64_t clock_advance_ms = 0;
 std::uint64_t advance_on_http_read_ms = 0;
@@ -54,6 +56,7 @@ bool disconnect_on_poll = true;
 int close_calls = 0;
 int destroy_calls = 0;
 std::size_t read_offset = 0;
+std::size_t read_chunk_limit = 1024;
 
 void expect(bool passed, const char* message)
 {
@@ -133,7 +136,8 @@ int esp_transport_ws_set_config(esp_transport_handle_t, const esp_transport_ws_c
 }
 int esp_transport_connect(esp_transport_handle_t handle, const char* name, int port, int timeout)
 {
-    expect(port == 8443 && timeout == 10000, "MVP network timeout");
+    expect((port == 8443 || (port == 9443 && handle == &tls)) && timeout == 10000, "configured port and timeout");
+    last_connect_port = port;
     host = name;
     ++connect_calls;
     read_offset = 0;
@@ -146,7 +150,7 @@ int esp_transport_connect(esp_transport_handle_t handle, const char* name, int p
 }
 int esp_transport_write(esp_transport_handle_t, const char* data, int size, int)
 {
-    expect(phase == Phase::Http, "only policy GET writes HTTP");
+    expect(phase == Phase::Http, "only HTTPS requests write HTTP");
     written.assign(data, size);
     return size;
 }
@@ -156,13 +160,15 @@ int esp_transport_read(esp_transport_handle_t, char* buffer, int size, int)
         return disconnect_on_poll ? -1 : 0;
     }
     if (read_offset >= http_response.size()) {
-        clock_advance_ms += advance_on_http_read_ms;
-        advance_on_http_read_ms = 0;
-        return 0;
+        return -1;  // ESP-IDF returns a negative result on TLS closure.
     }
-    const auto count = std::min(static_cast<std::size_t>(size), http_response.size() - read_offset);
+    const auto count = std::min({static_cast<std::size_t>(size), http_response.size() - read_offset, read_chunk_limit});
     std::memcpy(buffer, http_response.data() + read_offset, count);
     read_offset += count;
+    if (read_offset == http_response.size()) {
+        clock_advance_ms += advance_on_http_read_ms;
+        advance_on_http_read_ms = 0;
+    }
     return static_cast<int>(count);
 }
 int esp_transport_close(esp_transport_handle_t) { return ++close_calls, 0; }
@@ -172,8 +178,82 @@ int esp_transport_ws_get_read_opcode(esp_transport_handle_t) { return WS_TRANSPO
 int esp_transport_ws_get_read_payload_len(esp_transport_handle_t) { return 0; }
 bool esp_transport_ws_get_fin_flag(esp_transport_handle_t) { return true; }
 
+void testPairingHttps()
+{
+    using namespace stackchan::notifications;
+    NotificationPairingClient pairing;
+    using Completion = NotificationPairingClient::Completion;
+    auto endpoint = pairing_endpoint;
+    endpoint.port = 9443;
+    expect(pairing.complete() == Completion::Unavailable && !pairing.start(endpoint, 8443) && connect_calls == 0,
+           "a fresh client or unsynchronized clock opens no connection");
+    notification_clock.markSynchronized();
+    initNotificationProductRuntime();
+    constexpr std::string_view id = "pair_0123456789abcdef";
+    const std::string claim(43, 'A');
+    const auto challenge = [&] {
+        return "{\"schema_version\":\"0.1\",\"pairing_id\":\"" + std::string(id) +
+               "\",\"subject_type\":\"device\",\"user_code\":\"CODE12\",\"expires_at\":\"" +
+               utcAfter(60000) + "\"}";
+    };
+    const auto claim_header = "X-StackChan-Pairing-Claim: " + claim + "\r\n";
+    const auto startResponse = [&](const std::string& headers) {
+        http_response = httpOk(challenge());
+        http_response.insert(http_response.find("Content-Type:"), headers);
+    };
+
+    startResponse(claim_header);
+    connect_result = -1;
+    expect(!pairing.start(endpoint, 8443) && close_calls == destroy_calls, "TLS connect failure denies pairing");
+    connect_result = 0;
+    startResponse(claim_header + claim_header);
+    expect(!pairing.start(endpoint, 8443), "duplicate claim header is rejected");
+
+    read_chunk_limit = 17;
+    startResponse(claim_header);
+    expect(pairing.start(endpoint, 8443) == "CODE12", "fragmented start response exposes only human code");
+    expect(last_connect_port == 9443 && host == endpoint.coordinator_host && ca == endpoint.coordinator_ca_pem &&
+               written.starts_with("POST /v1/pairing/sessions HTTP/1.1\r\n") && written.find(claim) == std::string::npos,
+           "start uses trusted pairing endpoint and sends no claim");
+    http_response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
+    expect(pairing.complete() == Completion::Pending, "approval can be checked again before expiry");
+    expect(written.starts_with("POST /v1/pairing/sessions/pair_0123456789abcdef/complete HTTP/1.1\r\n") &&
+               written.find(claim_header) != std::string::npos,
+           "complete presents the claim for the matching pairing");
+    http_response = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
+    expect(pairing.complete() == Completion::Unavailable, "denial consumes the local attempt");
+    const int denied_calls = connect_calls;
+    expect(pairing.complete() == Completion::Unavailable &&
+               fetchAndArmNotificationProductRuntime(1) == NotificationBootstrapResult::CredentialsUnavailable &&
+               connect_calls == denied_calls, "denial gives no RAM grant and cannot be retried");
+
+    startResponse(claim_header);
+    expect(pairing.start(endpoint, 8443) == "CODE12", "fresh pairing starts");
+    clock_advance_ms = 61000;
+    const int expired_calls = connect_calls;
+    expect(pairing.complete() == Completion::Unavailable && connect_calls == expired_calls,
+           "expired challenge cannot make a completion request");
+    clock_advance_ms = 0;
+    startResponse(claim_header);
+    expect(pairing.start(endpoint, 8443) == "CODE12", "new challenge can be accepted");
+    http_response = httpOk(pairingResponse(id, 10000));
+    expect(pairing.complete() == Completion::Delivered, "successful completion stages the grant");
+    const int completed_calls = connect_calls;
+    expect(pairing.complete() == Completion::Unavailable && connect_calls == completed_calls,
+           "successful completion discards its claim");
+    http_response = httpOk(R"({"policy_id":"desk","version":"v1","privacy_mode":"private","valid_until":"2099-01-01T00:00:00Z"})");
+    expect(fetchAndArmNotificationProductRuntime(1) == NotificationBootstrapResult::Upgraded &&
+               last_connect_port == 8443 &&
+               ws_headers.find("Authorization: Bearer paired-token-for-test\r\n") != std::string::npos,
+           "RAM grant upgrades the stream on its own port");
+}
+
 int main(int argc, char** argv)
 {
+    if (argc == 2 && std::string_view(argv[1]) == "--pairing-https") {
+        testPairingHttps();
+        return 0;
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--after-restart") {
         using namespace stackchan::notifications;
         notification_clock.markSynchronized();
