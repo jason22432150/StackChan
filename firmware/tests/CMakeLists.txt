@@ -172,4 +172,18 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(start_provisioned_stream_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(start_provisioned_stream_test PRIVATE cxx_std_20)
     add_test(NAME start_provisioned_stream_test COMMAND $<TARGET_FILE:start_provisioned_stream_test>)
+
+    add_executable(device_loopback_handshake_test
+        device_loopback_handshake_test.cpp
+        ../main/stackchan/notifications/device_loopback_handshake.cpp
+        ../main/stackchan/notifications/stream_provision.cpp
+        ../main/stackchan/notifications/policy_lease.cpp
+        ../main/stackchan/notifications/runtime_limits.cpp
+        ../main/stackchan/notifications/device_stream_json.cpp
+        ../main/stackchan/notifications/device_stream_ingress.cpp
+        ../main/stackchan/notifications/notification_controller.cpp
+    )
+    target_include_directories(device_loopback_handshake_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(device_loopback_handshake_test PRIVATE cxx_std_17)
+    add_test(NAME device_loopback_handshake_test COMMAND $<TARGET_FILE:device_loopback_handshake_test>)
 endif()

@@ -59,7 +59,7 @@ CoreS3 的 `parsePolicyLeaseJson` 接受上述 Policy JSON（固定欄位、可�
 
 `startProvisionedDeviceStream` 以已佈建 Config 呼叫 `DeviceStreamTlsClient::start`（呼叫端須用同一 profile 建構客戶端）；空／不一致的 provision Fail-Closed。Windows 替身測試涵蓋「取租約→佈建→WebSocket 101 升級」軟路徑。
 
-Coordinator loopback 整合：`serve_device_policy` 取得 Policy 後，以 `create_mvp_notification_dispatcher`（MVP capacity／heartbeat）搭配 `serve_device_stream`，用租約 `version` 升級 WebSocket 並收到 heartbeat／intent；錯版號拒絕。裝置韌體對同一 loopback 的實機握手仍待驗證。
+Coordinator loopback 整合：`serve_device_policy` 取得 Policy 後，以 `create_mvp_notification_dispatcher`（MVP capacity／heartbeat）搭配 `serve_device_stream`，用租約 `version` 升級 WebSocket 並收到 heartbeat／intent；錯版號拒絕。裝置軟路徑 `completeDeviceLoopbackHandshake` 消費同一 Policy 快照並 `bindVerified`；pytest `test_device_loopback_handshake` 以裝置 StreamProvision 標頭對 live loopback TLS 完成握手。實機燒錄路徑與 R-006 仍待驗證。
 
 P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `CORE_S3_MVP_RUNTIME_LIMITS` 對齊（capacity 4、heartbeat 4s、stability 5s、frame age 5s、frame 1024 bytes、network 10s；Coordinator heartbeat_interval 1s、pong_timeout 2s）。超出硬上限的設定 Fail-Closed。實機失聯撤銷時間仍待 R-006。
 
