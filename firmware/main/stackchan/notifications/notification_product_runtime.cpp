@@ -71,19 +71,22 @@ bool armNotificationProductRuntime(const StreamProvision& provision)
     return armProvisionedDeviceStream(rt.client, provision);
 }
 
-bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation)
+NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation)
 {
     auto& rt = runtime();
-    if (!rt.ready || rt.client.started()) {
-        return false;
+    if (!rt.ready) {
+        return NotificationBootstrapResult::NotInitialized;
+    }
+    if (rt.client.started()) {
+        return NotificationBootstrapResult::AlreadyArmed;
     }
     const auto utc_ms = notificationUtcMs();
     if (utc_ms == 0) {
-        return false;
+        return NotificationBootstrapResult::ClockUnsynchronized;
     }
     auto credentials = loadNotificationCredentials();
     if (!credentials) {
-        return false;
+        return NotificationBootstrapResult::CredentialsUnavailable;
     }
 
     StreamProvisionRequest request{};
@@ -97,7 +100,12 @@ bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation)
     request.now_utc_ms = utc_ms;
 
     PolicyLeaseHttpClient http;
-    return fetchAndArmDeviceStream(http, rt.client, request);
+    const auto provision = fetchAndProvisionDeviceStream(http, request);
+    if (!provision) {
+        return NotificationBootstrapResult::PolicyUnavailable;
+    }
+    return armNotificationProductRuntime(*provision) ? NotificationBootstrapResult::Upgraded
+                                                     : NotificationBootstrapResult::StreamUpgradeFailed;
 }
 
 bool isNotificationProductStreamArmed()

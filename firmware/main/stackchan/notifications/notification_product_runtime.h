@@ -23,6 +23,16 @@ void initNotificationProductRuntime();
  */
 bool armNotificationProductRuntime(const StreamProvision& provision);
 
+enum class NotificationBootstrapResult {
+    Upgraded,
+    NotInitialized,
+    AlreadyArmed,
+    ClockUnsynchronized,
+    CredentialsUnavailable,
+    PolicyUnavailable,
+    StreamUpgradeFailed,
+};
+
 /**
  * Explicitly load credentials and fetch policy before arming the product stream.
  * The caller supplies the Coordinator generation. Bootstrap stays idle until
@@ -30,7 +40,7 @@ bool armNotificationProductRuntime(const StreamProvision& provision);
  * TLS can block. Call outside the LVGL lock and serialize with runtime init,
  * arm and tick on the client owner context.
  */
-bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation);
+NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation);
 
 /** 產品 stream 是否已 upgrade（client.started）。 */
 bool isNotificationProductStreamArmed();

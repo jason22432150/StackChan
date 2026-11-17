@@ -6,6 +6,7 @@
 #include <stackchan/notifications/notification_product_task.h>
 #include <stackchan/notifications/notification_utc_clock.h>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
@@ -15,6 +16,7 @@
 
 using stackchan::notifications::publishNotificationXiaozhiBusy;
 using stackchan::notifications::NotificationStreamRequestResult;
+using stackchan::notifications::NotificationBootstrapResult;
 using stackchan::notifications::requestConfiguredNotificationProductStream;
 using stackchan::notifications::requestNotificationProductStream;
 
@@ -22,7 +24,7 @@ namespace {
 TaskFunction_t scheduled_task = nullptr;
 void* scheduled_argument = nullptr;
 bool create_succeeds = false;
-bool bootstrap_succeeds = false;
+auto bootstrap_result = NotificationBootstrapResult::CredentialsUnavailable;
 bool armed = false;
 std::uint64_t utc_ms = 0;
 std::uint64_t bootstrapped_generation = 0;
@@ -33,7 +35,7 @@ unsigned bootstrapped = 0;
 unsigned polled = 0;
 unsigned delays = 0;
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-std::vector<std::string_view> resource_phases;
+std::vector<std::pair<std::string_view, std::string_view>> resource_samples;
 #endif
 
 void expect(bool passed, const char* message)
@@ -104,13 +106,14 @@ std::size_t heap_caps_get_largest_free_block(unsigned caps)
 }
 
 void ESP_LOGI(const char* tag, const char* format, const char* phase, unsigned stack,
-              std::size_t free, std::size_t minimum, std::size_t largest)
+              std::size_t free, std::size_t minimum, std::size_t largest, const char* result)
 {
     expect(std::string_view(tag) == "AgentNotify" && std::string_view(format).starts_with("AGENT_NOTIFY_RESOURCE "),
            "use the fixed resource log tag and prefix");
     expect(stack == 1536 && free == 6000 && minimum == 4000 && largest == 3072,
            "log resource samples in bytes");
-    resource_phases.emplace_back(phase);
+    expect(std::string_view(format).ends_with(" bootstrap_result=%s"), "log a fixed bootstrap result field");
+    resource_samples.emplace_back(phase, result);
 }
 #endif
 
@@ -119,13 +122,13 @@ std::int64_t esp_timer_get_time() { return 123456; }
 namespace stackchan::notifications {
 std::uint64_t notificationUtcMs() noexcept { return utc_ms; }
 void initNotificationProductRuntime() { ++initialized; }
-bool fetchAndArmNotificationProductRuntime(std::uint64_t generation)
+NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t generation)
 {
     ++bootstrapped;
     bootstrapped_generation = generation;
     expect(!requestNotificationProductStream(99), "bootstrap excludes another worker");
-    armed = bootstrap_succeeds;
-    return armed;
+    armed = bootstrap_result == NotificationBootstrapResult::Upgraded;
+    return bootstrap_result;
 }
 bool isNotificationProductStreamArmed() { return armed; }
 void tickNotificationProductRuntime(std::uint64_t now, std::uint64_t utc, bool busy)
@@ -157,14 +160,14 @@ int main()
     expect(initialized == 0 && bootstrapped == 0 && polled == 0, "caller does not run the runtime or TLS");
     expect(!requestNotificationProductStream(9) && created == 2, "pending worker rejects a duplicate");
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-    expect(resource_phases.empty(), "rejected and queued requests log no worker resource samples");
+    expect(resource_samples.empty(), "rejected and queued requests log no worker resource samples");
 #endif
     runScheduledTask();
     expect(initialized == 1 && bootstrapped == 1 && bootstrapped_generation == generation &&
                polled == 0 && deleted == 1,
            "failed bootstrap preserves uint64 generation and exits without polling");
 
-    bootstrap_succeeds = true;
+    bootstrap_result = NotificationBootstrapResult::Upgraded;
     publishNotificationXiaozhiBusy(true);
     expect(requestConfiguredNotificationProductStream("0") == NotificationStreamRequestResult::Scheduled,
            "bootstrap failure allows another request with generation zero");
@@ -172,13 +175,16 @@ int main()
     expect(initialized == 2 && bootstrapped == 2 && bootstrapped_generation == 0 &&
                polled == 2 && delays == 1 && deleted == 2,
            "successful worker polls until disconnection and exits");
-    bootstrap_succeeds = false;
+    bootstrap_result = NotificationBootstrapResult::StreamUpgradeFailed;
     expect(requestNotificationProductStream(27), "disconnect allows an explicit new request");
     runScheduledTask();
     expect(bootstrapped_generation == 27 && polled == 2 && deleted == 3, "no automatic reconnect");
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-    expect(resource_phases == std::vector<std::string_view>{
-               "bootstrap_failed", "upgraded", "disconnected", "bootstrap_failed",
+    expect(resource_samples == std::vector<std::pair<std::string_view, std::string_view>>{
+               {"bootstrap_failed", "credentials_unavailable"},
+               {"upgraded", "upgraded"},
+               {"disconnected", "not_applicable"},
+               {"bootstrap_failed", "stream_upgrade_failed"},
            },
            "sample exactly once at each worker transition");
 #endif

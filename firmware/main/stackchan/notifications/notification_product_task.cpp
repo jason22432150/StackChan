@@ -25,15 +25,30 @@ constexpr unsigned kWorkerStackBytes = 8192;
 constexpr unsigned kWorkerPriority = 2;
 
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-void logNotificationResources(const char* phase)
+const char* bootstrapResultName(NotificationBootstrapResult result)
+{
+    switch (result) {
+        case NotificationBootstrapResult::Upgraded: return "upgraded";
+        case NotificationBootstrapResult::NotInitialized: return "not_initialized";
+        case NotificationBootstrapResult::AlreadyArmed: return "already_armed";
+        case NotificationBootstrapResult::ClockUnsynchronized: return "clock_unsynchronized";
+        case NotificationBootstrapResult::CredentialsUnavailable: return "credentials_unavailable";
+        case NotificationBootstrapResult::PolicyUnavailable: return "policy_unavailable";
+        case NotificationBootstrapResult::StreamUpgradeFailed: return "stream_upgrade_failed";
+    }
+    return "unknown";
+}
+
+void logNotificationResources(const char* phase, const char* result)
 {
     constexpr auto internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     ESP_LOGI("AgentNotify",
              "AGENT_NOTIFY_RESOURCE phase=%s stack_min_free_bytes=%u"
-             " internal_free_bytes=%zu internal_min_since_boot_bytes=%zu internal_largest_block_bytes=%zu",
+             " internal_free_bytes=%zu internal_min_since_boot_bytes=%zu internal_largest_block_bytes=%zu"
+             " bootstrap_result=%s",
              phase, static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)),
              heap_caps_get_free_size(internal_caps), heap_caps_get_minimum_free_size(internal_caps),
-             heap_caps_get_largest_free_block(internal_caps));
+             heap_caps_get_largest_free_block(internal_caps), result);
 }
 #endif
 
@@ -43,9 +58,10 @@ void runNotificationProductStream(void* argument)
     const auto generation = *request;
     delete request;
     initNotificationProductRuntime();
-    const bool upgraded = fetchAndArmNotificationProductRuntime(generation);
+    const auto result = fetchAndArmNotificationProductRuntime(generation);
+    const bool upgraded = result == NotificationBootstrapResult::Upgraded;
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-    logNotificationResources(upgraded ? "upgraded" : "bootstrap_failed");
+    logNotificationResources(upgraded ? "upgraded" : "bootstrap_failed", bootstrapResultName(result));
 #endif
     if (upgraded) {
         while (isNotificationProductStreamArmed()) {
@@ -56,7 +72,7 @@ void runNotificationProductStream(void* argument)
             }
         }
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-        logNotificationResources("disconnected");
+        logNotificationResources("disconnected", "not_applicable");
 #endif
     }
     worker_active.clear();

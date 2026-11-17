@@ -76,7 +76,7 @@ P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；
 
 `loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。產品端由呼叫端明確呼叫 `fetchAndArmNotificationProductRuntime`，傳入 Coordinator 的 generation。入口先檢查 runtime 已初始化、尚未連線，且本次開機已收到既有 SNTP 同步回呼。只有 RTC 或正值的系統時鐘時，入口不讀憑證也不連線。同步確認在同一次開機保留。通過檢查後，入口取樣系統 UTC 毫秒、讀憑證、透過 TLS 取得 policy，再以同一組憑證及已驗證的租約升級 WebSocket。通知 tick 使用同一個 UTC 毫秒來源。初始化與閒置 tick 不會讀取憑證或發起連線。本機操作透過 `requestNotificationProductStream(generation)` 接入。只有啟用通知功能、時鐘已同步且沒有執行中的任務時才接受。FreeRTOS 專用任務依序初始化、握手與輪詢，斷線或啟動失敗即退出，下一次連線需重新請求。顯示更新迴圈只傳遞 Xiaozhi 忙碌狀態。專用任務暫採 8 KiB stack，實機須量測剩餘 stack 與內部 heap。啟用通知的建置在 SETUP → Agent Notifications 提供 Connect notifications。需在建置設定 `STACKCHAN_AGENT_COORDINATOR_GENERATION` 填入與 Coordinator 相符的 1 到 20 位十進位數字（uint64）。開啟頁面不會連線，只有點選才送出請求。提示只回報請求已送出或遭拒。憑證寫入、實機點選與握手仍待驗收。
 
-實機量測可在驗收映像同時啟用 `STACKCHAN_RUNTIME_BASELINE` 與通知功能。通知 task 在 `bootstrap_failed`、`upgraded`、`disconnected` 記錄 `AGENT_NOTIFY_RESOURCE`，欄位包含本次 task 的 stack 最小餘量、當前內部 heap、開機以來內部 heap 低水位與當前最大連續區塊，單位均為 bytes。可對照既有 `StackChanBaseline` 的顯示更新與 LVGL 持鎖間隔。若 task 未能建立，該 task 不會產生資源紀錄。
+實機量測可在驗收映像同時啟用 `STACKCHAN_RUNTIME_BASELINE` 與通知功能。通知 task 在 `bootstrap_failed`、`upgraded`、`disconnected` 記錄 `AGENT_NOTIFY_RESOURCE`，欄位包含本次 task 的 stack 最小餘量、當前內部 heap、開機以來內部 heap 低水位與當前最大連續區塊，單位均為 bytes。可對照既有 `StackChanBaseline` 的顯示更新與 LVGL 持鎖間隔。同一行的 `bootstrap_result` 使用固定代碼，區分 runtime 未初始化、串流已開啟、時鐘未同步、憑證不可用、政策取得或驗證失敗，以及串流啟用失敗。紀錄不含憑證、policy 內容或 TLS 診斷明細。若 task 未能建立，該 task 不會產生資源紀錄。
 
 ## 4. 狀態仲裁矩陣
 
