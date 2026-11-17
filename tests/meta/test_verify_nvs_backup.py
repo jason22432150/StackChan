@@ -130,3 +130,53 @@ def test_binary_table_rejects_short_capture(tmp_path):
     table.write_bytes(_binary_table(_partition_record(b"nvs", 0x9000, 0x4000))[:-1])
     with pytest.raises(ValueError, match="0xc00-byte"):
         binary_nvs_partition_extent(table)
+
+
+@pytest.mark.parametrize(
+    ("target_offset", "target_size", "checksummed", "error"),
+    [
+        (0x9000, 0x4000, True, None),
+        (0xA000, 0x4000, True, "target NVS offset or size differs"),
+        (0x9000, 0x5000, True, "target NVS offset or size differs"),
+        (0x9000, 0x4000, False, "no MD5"),
+    ],
+)
+def test_target_partition_preflight(
+    backups, tmp_path, capsys, target_offset, target_size, checksummed, error,
+):
+    first, second, contents = backups
+    source = tmp_path / "captured-sector.bin"
+    target = tmp_path / "target-image-table.bin"
+    source.write_bytes(_binary_table(_partition_record(b"nvs", 0x9000, 0x4000), size=0x1000))
+    target.write_bytes(_binary_table(
+        _partition_record(b"nvs", target_offset, target_size), checksummed=checksummed,
+    ))
+    args = ["--binary-partition-table", str(source), "--target-binary-partition-table",
+            str(target), str(first), str(second)]
+    if error:
+        with pytest.raises(SystemExit) as exc:
+            main(args)
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert error in captured.err
+        assert not captured.out
+    else:
+        assert main(args) == 0
+        stdout = capsys.readouterr().out
+        assert hashlib.sha256(contents).hexdigest() in stdout
+        assert "Source and target NVS offset and size match." in stdout
+        second.write_bytes(contents[:-1] + b"\x00")
+        with pytest.raises(SystemExit) as exc:
+            main(args)
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "backup copies do not match" in captured.err
+        assert not captured.out
+
+
+@pytest.mark.parametrize("source_options", [[], ["--binary-partition-table", "source.bin", "--show-partition"]])
+def test_target_partition_preflight_requires_binary_source_and_backups(source_options, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main([*source_options, "--target-binary-partition-table", "target.bin"])
+    assert exc.value.code == 2
+    assert "requires --binary-partition-table and two backup files" in capsys.readouterr().err

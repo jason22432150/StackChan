@@ -105,6 +105,10 @@ def verify_nvs_backups(
 ) -> tuple[int, int, str]:
     """Check the partition extent and compare SHA-256 without exposing NVS contents."""
     offset, size = binary_nvs_partition_extent(table) if binary_table else nvs_partition_extent(table)
+    return offset, size, _verify_backup_copies(first, second, size)
+
+
+def _verify_backup_copies(first: Path, second: Path, size: int) -> str:
     if not first.is_file() or not second.is_file():
         raise ValueError("provide two regular backup files")
     if first.samefile(second):
@@ -112,7 +116,7 @@ def verify_nvs_backups(
     digest = _backup_digest(first, size)
     if digest != _backup_digest(second, size):
         raise ValueError("backup copies do not match")
-    return offset, size, digest
+    return digest
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -124,11 +128,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="CSV matching the device partition table, with explicit byte offset and size")
     tables.add_argument("--binary-partition-table", type=Path,
                         help="checksummed ESP-IDF partition table or full sector capture")
+    parser.add_argument("--target-binary-partition-table", type=Path,
+                        help="also require the target image to have the same NVS offset and size")
     parser.add_argument("--show-partition", action="store_true",
                         help="report the NVS extent without reading any NVS backup")
     args = parser.parse_args(argv)
     binary = args.binary_partition_table is not None
     table = args.binary_partition_table or args.partition_table
+    target = args.target_binary_partition_table
+    if target is not None and (not binary or args.show_partition):
+        parser.error("--target-binary-partition-table requires --binary-partition-table and two backup files")
     try:
         if args.show_partition:
             if args.first is not None or args.second is not None:
@@ -138,12 +147,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.first is None or args.second is None:
             parser.error("provide two backup files or use --show-partition")
-        offset, size, digest = verify_nvs_backups(table, args.first, args.second, binary_table=binary)
+        if target is None:
+            offset, size, digest = verify_nvs_backups(table, args.first, args.second, binary_table=binary)
+        else:
+            offset, size = binary_nvs_partition_extent(table)
+            if binary_nvs_partition_extent(target) != (offset, size):
+                parser.error("target NVS offset or size differs from the source")
+            digest = _verify_backup_copies(args.first, args.second, size)
     except (ValueError, csv.Error) as exc:
         parser.error(str(exc))
     except OSError:
         parser.error("could not read the partition table or backup files")
     print(f"NVS copies match: offset={offset:#x} size={size:#x} sha256={digest}")
+    if target is not None:
+        print("Source and target NVS offset and size match.")
     return 0
 
 

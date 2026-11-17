@@ -80,7 +80,9 @@ P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；
 
 燒錄前可用 `firmware/verify_nvs_backup.py` 離線比對兩份獨立擷取的原始 NVS 備份。工具依裝置對應的 CSV 分割表核對長度，拒絕全零／全擦除樣本與同一檔案的別名，並回報 offset、大小和 SHA-256。可用 `--binary-partition-table` 指定實際擷取的分割表，接受 0xC00 bytes 的表或 0x1000 bytes 的完整 sector。工具核對表內 MD5 與 NVS 範圍，搭配 `--show-partition` 可在取得 NVS 備份前查出 offset 與大小。若使用 CSV，可用 `--partition-table` 指定與裝置相符的表。[ESP-IDF 分割表格式](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/partition-tables.html)。備份可能包含配對或 Wi-Fi 資料，應保存在受保護的位置。相同摘要只能證明輸入一致，分割表來源、裝置身分、金鑰狀態與可回復性仍須另外確認。
 
-取得批准並將 CoreS3 手動切到 ROM download mode 後，可從 repo 根目錄用 ESP-IDF Python 執行 `python -m firmware.capture_nvs_backup`。指定已確認的 `--port`、`--table-offset`，以及版本庫之外的私人 `--output-parent`。工具先讀一個分割表 sector，驗證後再按表內範圍讀兩次 NVS。它只呼叫 esptool `read-flash`，禁止自動重啟與上傳 flasher stub。若讀取或比對失敗，只清理本次新建的本機暫存檔。成功時保留分割表與兩份備份。裝置維持 ROM mode，恢復正常運作仍須操作員退出 bootloader。實機可讀性、備份來源與回復待驗收。[esptool 重設選項](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/advanced-options.html)
+取得批准並將 CoreS3 手動切到 ROM download mode 後，可從 repo 根目錄用 ESP-IDF Python 執行 `python -m firmware.capture_nvs_backup`。指定已確認的 `--port`、`--table-offset`，以及版本庫之外的私人 `--output-parent`。工具先讀一個分割表 sector，驗證後再按表內範圍讀兩次 NVS。它只呼叫 esptool `read-flash`，禁止自動重啟與上傳 flasher stub。若讀取或比對失敗，只清理本次新建的本機暫存檔。成功時保留分割表與兩份備份。裝置維持 ROM mode，恢復正常運作仍須操作員退出 bootloader。實機擷取與重啟的證據見開發清單 P2-04，回復待驗收。[esptool 重設選項](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/advanced-options.html)
+
+回復前可執行 `python -m firmware.verify_nvs_backup --binary-partition-table captured-sector.bin --target-binary-partition-table target-partition-table.bin capture-1.bin capture-2.bin`。工具核對兩份二進位分割表的 MD5 與 NVS 範圍，再確認兩份備份內容相符。離線結果只涵蓋分割區 offset、大小及備份一致性。裝置身分、加密與金鑰狀態，以及實際回復仍須另行驗證。
 
 實機量測可在驗收映像同時啟用 `STACKCHAN_RUNTIME_BASELINE` 與通知功能。通知 task 在 `bootstrap_failed`、`upgraded`、`disconnected` 記錄 `AGENT_NOTIFY_RESOURCE`，欄位包含本次 task 的 stack 最小餘量、當前內部 heap、開機以來內部 heap 低水位與當前最大連續區塊，單位均為 bytes。可對照既有 `StackChanBaseline` 的顯示更新與 LVGL 持鎖間隔。同一行的 `bootstrap_result` 使用固定代碼，區分 runtime 未初始化、串流已開啟、時鐘未同步、憑證不可用、政策取得或驗證失敗，以及串流啟用失敗。紀錄不含憑證、policy 內容或 TLS 診斷明細。若 task 未能建立，該 task 不會產生資源紀錄。
 
