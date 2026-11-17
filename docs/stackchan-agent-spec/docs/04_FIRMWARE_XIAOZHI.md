@@ -86,6 +86,16 @@ P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；
 
 實機量測可在驗收映像同時啟用 `STACKCHAN_RUNTIME_BASELINE` 與通知功能。通知 task 在 `bootstrap_failed`、`upgraded`、`disconnected` 記錄 `AGENT_NOTIFY_RESOURCE`，欄位包含本次 task 的 stack 最小餘量、當前內部 heap、開機以來內部 heap 低水位與當前最大連續區塊，單位均為 bytes。可對照既有 `StackChanBaseline` 的顯示更新與 LVGL 持鎖間隔。同一行的 `bootstrap_result` 使用固定代碼，區分 runtime 未初始化、串流已開啟、時鐘未同步、憑證不可用、政策取得或驗證失敗，以及串流啟用失敗。紀錄不含憑證、policy 內容或 TLS 診斷明細。若 task 未能建立，該 task 不會產生資源紀錄。
 
+在 ESP-IDF 6.1 環境下，從 `firmware` 目錄建置 P2-04 離線驗收映像。使用新的建置目錄，讓 Kconfig 從兩份 defaults 產生獨立的 `sdkconfig`。如果已有 `sdkconfig.defaults.local`，應在沒有該本機覆寫檔的 checkout 執行，因為 CMake 會優先使用它。
+
+```powershell
+$buildDir = Join-Path $PWD 'build/p204-notifications'
+$sdkconfigPath = Join-Path $buildDir 'sdkconfig'
+idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.p204-notifications' build
+```
+
+此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，憑證載入會 Fail-Closed。這組映像驗證編譯、連結與分割區容量。正向連線驗收仍需另行確認 NVS 加密與佈建方案。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。
