@@ -74,7 +74,7 @@ P2-04 產品路徑主迴圈：`NotificationProductLoop`（FailClosed→takeNext�
 
 P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；runtime `armNotificationProductRuntime`／`isNotificationProductStreamArmed`（未 init／已 started／無效 provision Fail-Closed）。host `start_provisioned_stream_test` 覆蓋雙重 arm、fetchAndArm 101／401。`idf.py build`：`armProvisionedDeviceStream`／`fetchAndArmDeviceStream` live；`stack-chan.bin` 0x39ed40、partition 剩 27%、SHA256 D8D568EA…029BDCB4。未寫入 NVS 密鑰、未自動 fetch。Avatar／實機 Coordinator 仍缺——P2-04 不勾完成。
 
-`loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。現階段由呼叫端明確讀取，憑證寫入及產品啟動接線待後續驗收。
+`loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。產品端由呼叫端明確呼叫 `fetchAndArmNotificationProductRuntime`，傳入已同步 UTC 與 Coordinator 的 generation。入口先檢查 runtime 已初始化、尚未連線且具 UTC，才讀憑證、透過 TLS 取 policy，並以同一組憑證及已驗證的租約升級 WebSocket。初始化與閒置 tick 不會讀取憑證或發起連線。呼叫端須與 init、arm、tick 在同一執行上下文序列化，且在 LVGL lock 外執行，因 TLS 可能阻塞。憑證寫入、產品觸發來源與實機握手仍待驗收。
 
 ## 4. 狀態仲裁矩陣
 

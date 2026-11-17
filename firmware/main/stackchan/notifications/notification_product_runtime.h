@@ -23,6 +23,14 @@ void initNotificationProductRuntime();
  */
 bool armNotificationProductRuntime(const StreamProvision& provision);
 
+/**
+ * Explicitly load credentials and fetch policy before arming the product stream.
+ * The caller supplies synchronized UTC and the configured Coordinator generation.
+ * TLS can block. Call outside the LVGL lock and serialize with runtime init,
+ * arm and tick on the client owner context.
+ */
+bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation, std::uint64_t utc_ms);
+
 /** 產品 stream 是否已 upgrade（client.started）。 */
 bool isNotificationProductStreamArmed();
 

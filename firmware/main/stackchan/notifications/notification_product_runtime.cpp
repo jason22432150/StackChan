@@ -2,13 +2,17 @@
 
 #include "device_stream_tls_client.h"
 #include "fail_closed_guard.h"
+#include "notification_credentials.h"
 #include "notification_lvgl_hooks.h"
 #include "notification_presenter.h"
 #include "notification_product_loop.h"
 #include "presentation_receipt.h"
 #include "resource_arbiter.h"
 #include "runtime_limits.h"
+#include "stream_bootstrap.h"
 #include "stream_session_start.h"
+
+#include <utility>
 
 namespace stackchan::notifications {
 namespace {
@@ -64,6 +68,31 @@ bool armNotificationProductRuntime(const StreamProvision& provision)
         return false;
     }
     return armProvisionedDeviceStream(rt.client, provision);
+}
+
+bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation, std::uint64_t utc_ms)
+{
+    auto& rt = runtime();
+    if (!rt.ready || rt.client.started() || utc_ms == 0) {
+        return false;
+    }
+    auto credentials = loadNotificationCredentials();
+    if (!credentials) {
+        return false;
+    }
+
+    StreamProvisionRequest request{};
+    request.coordinator_host = std::move(credentials->coordinator_host);
+    request.port = credentials->port;
+    request.coordinator_ca_pem = std::move(credentials->coordinator_ca_pem);
+    request.token = std::move(credentials->token);
+    request.device_id = std::move(credentials->device_id);
+    request.generation = coordinator_generation;
+    request.profile = rt.profile;
+    request.now_utc_ms = utc_ms;
+
+    PolicyLeaseHttpClient http;
+    return fetchAndArmDeviceStream(http, rt.client, request);
 }
 
 bool isNotificationProductStreamArmed()

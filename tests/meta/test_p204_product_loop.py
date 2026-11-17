@@ -42,11 +42,12 @@ def test_runtime_does_not_auto_start_tls() -> None:
         encoding="utf-8"
     )
     assert "initNotificationProductRuntime" in runtime
-    # init／tick 不直接 start；arm 經 armProvisionedDeviceStream，且無 client.start( 呼叫。
     assert "startProvisionedDeviceStream" not in runtime
     assert "client.start(" not in runtime
-    assert "fetchAndProvisionDeviceStream" not in runtime
-    assert "fetchAndArmDeviceStream" not in runtime
+    for function in ("initNotificationProductRuntime", "tickNotificationProductRuntime"):
+        body = runtime.split(f"void {function}(", 1)[1].split("\n}", 1)[0]
+        assert "fetchAndArm" not in body
+        assert "loadNotificationCredentials" not in body
 
 
 def test_checklist_p204_p208_remain_unchecked() -> None:

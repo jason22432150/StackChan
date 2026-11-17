@@ -24,13 +24,12 @@ def test_fetch_and_arm_api_exists() -> None:
     assert "fetchAndArmDeviceStream" in text
 
 
-def test_runtime_arm_does_not_auto_fetch() -> None:
+def test_runtime_exposes_explicit_fetch_and_arm() -> None:
     header = RUNTIME_H.read_text(encoding="utf-8")
     body = RUNTIME_CPP.read_text(encoding="utf-8")
     assert "armNotificationProductRuntime" in header
     assert "isNotificationProductStreamArmed" in header
-    assert "fetchAndArmDeviceStream" not in body
-    assert "fetchAndProvisionDeviceStream" not in body
+    assert "fetchAndArmNotificationProductRuntime" in header
     assert "armProvisionedDeviceStream" in body
 
 

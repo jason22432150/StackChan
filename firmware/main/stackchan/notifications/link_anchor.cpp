@@ -10,6 +10,7 @@
 #include "notification_lvgl_hooks.h"
 #include "notification_presenter.h"
 #include "notification_product_loop.h"
+#include "notification_product_runtime.h"
 #include "policy_lease.h"
 #include "presentation_receipt.h"
 #include "resource_arbiter.h"
@@ -29,6 +30,7 @@ using stackchan::notifications::mvpSoftWorstCaseRevokeMs;
 using stackchan::notifications::armProvisionedDeviceStream;
 using stackchan::notifications::armProvisionedDeviceStreamLinked;
 using stackchan::notifications::fetchAndArmDeviceStream;
+using stackchan::notifications::fetchAndArmNotificationProductRuntime;
 using stackchan::notifications::fetchAndProvisionDeviceStream;
 using stackchan::notifications::makeHalLvglLockHooks;
 using stackchan::notifications::mvpAgentAudioIsA0;
@@ -44,6 +46,7 @@ const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&parsePolicyLeaseJson),
     reinterpret_cast<RetainFn>(&fetchAndProvisionDeviceStream),
     reinterpret_cast<RetainFn>(&fetchAndArmDeviceStream),
+    reinterpret_cast<RetainFn>(&fetchAndArmNotificationProductRuntime),
     reinterpret_cast<RetainFn>(&startProvisionedDeviceStream),
     reinterpret_cast<RetainFn>(&armProvisionedDeviceStream),
     reinterpret_cast<RetainFn>(&armProvisionedDeviceStreamLinked),
