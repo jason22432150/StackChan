@@ -3,16 +3,22 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
+import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPSConnection
 
 import pytest
 import trustme
 
 from stackchan.contracts.authz import ApiGate
 from stackchan.coordinator.pairing_server import serve_device_pairing
+from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
+from stackchan.coordinator.policy_lease_server import serve_device_policy
 from stackchan.security.auth_bridge import StoreBackedTokenDirectory
 from stackchan.security.identity import TokenHasher
 from stackchan.security.pairing import PairingService
+from stackchan.security.policy import PolicyService
 from stackchan.security.store import SecurityStore
 
 _START = "/v1/pairing/sessions"
@@ -34,7 +40,7 @@ def pairing_transport(tmp_path):
             token_plaintext="test-admin-token", scopes=["admin:pairing"], expires_at="2099-01-01T00:00:00Z",
         )
         directory = StoreBackedTokenDirectory(store)
-        yield PairingService(store), ApiGate(directory), tls, client, directory
+        yield PairingService(store), ApiGate(directory), tls, client, directory, store
 
 
 async def _post(client, port, path, payload=None, **headers):
@@ -80,7 +86,7 @@ def _confirm(challenge, approved=True):
 
 
 def test_approved_pairing_delivers_token_only_to_claim_holder(pairing_transport):
-    service, gate, tls, client, directory = pairing_transport
+    service, gate, tls, client, directory, store = pairing_transport
 
     async def exercise():
         async with await serve_device_pairing(service, gate, tls, port=0) as server:
@@ -111,12 +117,13 @@ def test_approved_pairing_delivers_token_only_to_claim_holder(pairing_transport)
             assert principal is not None
             assert principal.subject_id == grant["subject_id"]
             assert principal.scopes == {"device:policy", "device:receipt", "device:stream"}
+            assert store.get_device_binding(grant["subject_id"]) is None
 
     asyncio.run(exercise())
 
 
 def test_denial_restart_and_untrusted_tls_do_not_deliver_a_grant(pairing_transport):
-    service, gate, tls, client, _ = pairing_transport
+    service, gate, tls, client, _, _ = pairing_transport
 
     async def exercise():
         admin = {"Authorization": "Bearer test-admin-token"}
@@ -145,7 +152,7 @@ def test_denial_restart_and_untrusted_tls_do_not_deliver_a_grant(pairing_transpo
 
 
 def test_expired_pairing_claim_is_refused(pairing_transport, monkeypatch):
-    service, gate, tls, client, _ = pairing_transport
+    service, gate, tls, client, _, _ = pairing_transport
     past = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=11)
 
     async def exercise():
@@ -162,5 +169,97 @@ def test_expired_pairing_claim_is_refused(pairing_transport, monkeypatch):
                 client, port, f"{path}/confirm", _confirm(challenge), Authorization="Bearer test-admin-token",
             )
             assert status == 403
+
+    asyncio.run(exercise())
+
+
+def _get_policy(client, port, device_id, token):
+    connection = HTTPSConnection("127.0.0.1", port, context=client, timeout=5)
+    try:
+        connection.request("GET", f"/v1/devices/{device_id}/policy", headers={"Authorization": f"Bearer {token}"})
+        response = connection.getresponse()
+        return response.status, json.loads(response.read())
+    finally:
+        connection.close()
+
+
+async def _approved_pairing(client, port):
+    challenge, claim = await _start(client, port)
+    path = f"{_START}/{challenge['pairing_id']}"
+    status, _, _ = await _post(
+        client, port, f"{path}/confirm", _confirm(challenge), Authorization="Bearer test-admin-token",
+    )
+    assert status == 200
+    return challenge, claim, f"{path}/complete"
+
+
+_POLICY = {"policy_id": "desk", "version": "v1", "privacy_mode": "private", "valid_until": "2099-01-01T00:00:00Z"}
+
+
+def test_repaired_device_can_fetch_its_explicitly_configured_policy(pairing_transport):
+    service, gate, tls, client, _, store = pairing_transport
+    policies = PolicyService(store)
+    policies.publish(_POLICY)
+    replacement_policy = {**_POLICY, "version": "v2"}
+    policies.publish(replacement_policy)
+    leases = DevicePolicyLeaseService(gate, policies)
+
+    async def issue(version):
+        async with await serve_device_pairing(service, gate, tls, port=0, device_policy=("desk", version)) as server:
+            port = server.sockets[0].getsockname()[1]
+            _, claim, path = await _approved_pairing(client, port)
+            status, _, grant = await _post(client, port, path, **{_CLAIM: claim})
+            assert status == 200
+            return grant
+
+    async def exercise():
+        first = await issue("v1")
+        repaired = await issue("v2")
+        assert first["subject_id"] != repaired["subject_id"]
+        assert first["access_token"] != repaired["access_token"]
+        async with await serve_device_policy(leases, tls, port=0) as server:
+            port = server.sockets[0].getsockname()[1]
+            assert await asyncio.to_thread(
+                _get_policy, client, port, repaired["subject_id"], repaired["access_token"],
+            ) == (200, replacement_policy)
+            assert await asyncio.to_thread(
+                _get_policy, client, port, first["subject_id"], first["access_token"],
+            ) == (200, _POLICY)
+            status, _ = await asyncio.to_thread(
+                _get_policy, client, port, repaired["subject_id"], first["access_token"],
+            )
+            assert status == 403
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("condition", ["missing", "revoked", "expired"])
+def test_unusable_policy_rolls_back_pairing_completion(pairing_transport, condition):
+    service, gate, tls, client, _, store = pairing_transport
+    policies = PolicyService(store)
+    if condition != "missing":
+        policy = dict(_POLICY)
+        if condition == "expired":
+            policy["valid_until"] = "2000-01-01T00:00:00Z"
+        policies.publish(policy)
+        if condition == "revoked":
+            policies.revoke("desk", "v1")
+
+    async def exercise():
+        async with await serve_device_pairing(service, gate, tls, port=0, device_policy=("desk", "v1")) as server:
+            port = server.sockets[0].getsockname()[1]
+            challenge, claim, path = await _approved_pairing(client, port)
+            status, _, response = await _post(client, port, path, **{_CLAIM: claim})
+            assert status == 403 and "access_token" not in response
+            session = store.get_pairing(challenge["pairing_id"])
+            assert session["status"] == "approved" and session["subject_id"] is None
+            with closing(sqlite3.connect(store.path)) as connection:
+                assert connection.execute("SELECT count(*) FROM subjects").fetchone() == (1,)
+                assert connection.execute("SELECT count(*) FROM authorization_grants").fetchone() == (1,)
+                assert connection.execute("SELECT count(*) FROM device_policy_bindings").fetchone() == (0,)
+            if condition == "missing":
+                policies.publish(_POLICY)
+                status, _, grant = await _post(client, port, path, **{_CLAIM: claim})
+                assert status == 200 and "access_token" in grant
 
     asyncio.run(exercise())

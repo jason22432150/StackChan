@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,12 @@ class SecurityStore:
 
     def __exit__(self, *args: object) -> None:
         self.close()
+
+    @contextmanager
+    def write_transaction(self) -> Iterator[None]:
+        self._conn.execute("BEGIN IMMEDIATE")
+        with self._conn:
+            yield
 
     def initialize_schema(self) -> None:
         self._conn.executescript(

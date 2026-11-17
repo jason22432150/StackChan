@@ -48,9 +48,10 @@ async def _read_request(reader: StreamReader) -> tuple[str, str, dict[str, str],
 
 
 class _PairingRoutes:
-    def __init__(self, service: PairingService, gate: ApiGate) -> None:
+    def __init__(self, service: PairingService, gate: ApiGate, device_policy: tuple[str, str] | None) -> None:
         self.service = service
         self.gate = gate
+        self.device_policy = device_policy
         self.claims: dict[str, tuple[bytes, datetime]] = {}
 
     def dispatch(self, method: str, path: str, headers: dict[str, str], body: bytes) -> bytes:
@@ -81,7 +82,7 @@ class _PairingRoutes:
                 expected = self.claims.get(pairing_id)
                 if expected is None or not hmac.compare_digest(expected[0], hashlib.sha256(supplied.encode("ascii")).digest()):
                     return HTTPStatus.UNAUTHORIZED, _error_body("unauthorized", "invalid pairing claim"), None
-                result = self.service.complete(pairing_id)
+                result = self.service.complete(pairing_id, device_policy=self.device_policy)
                 del self.claims[pairing_id]
             else:
                 if match:
@@ -122,11 +123,12 @@ class _PairingRoutes:
 
 def serve_device_pairing(
     service: PairingService, gate: ApiGate, tls: ssl.SSLContext, *, port: int,
+    device_policy: tuple[str, str] | None = None,
 ) -> Awaitable[asyncio.Server]:
-    """Bind a TLS 1.2+ pairing listener to 127.0.0.1."""
+    """Bind a loopback TLS listener with an optional operator-selected policy ID and version."""
     if tls.protocol != ssl.PROTOCOL_TLS_SERVER or tls.minimum_version < ssl.TLSVersion.TLSv1_2:
         raise ValueError("device pairing requires TLS 1.2 or newer")
-    routes = _PairingRoutes(service, gate)
+    routes = _PairingRoutes(service, gate, device_policy)
 
     async def client_connected(reader: StreamReader, writer: StreamWriter) -> None:
         try:

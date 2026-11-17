@@ -73,7 +73,7 @@ P2-04 憑證／arm：`armProvisionedDeviceStream`（已 started 則拒絕）與 
 
 CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket，固定連線到設定主機的 `/v1/device-stream`。它使用明確提供的 Coordinator CA 並保留主機名稱檢查，僅接受 HTTP 101，遇到 HTTP 轉址會關閉連線。呼叫端須在單一工作任務呼叫 `start`、`poll`、`takeNext`、`stop`，並供應已同步的時鐘、已驗證的政策快照及封包上限。單一 WebSocket 文字框可分多次 socket read 收取，超過上限或遇到 WebSocket 層分片會撤銷 session。斷線與心跳逾時同樣停權。Windows 測試使用 transport 替身，裝置憑證握手與到 Coordinator 的端到端網路路徑仍待實機驗證。
 
-`serve_device_pairing` 在 `127.0.0.1` 提供獨立的 CoreS3 配對 HTTPS listener。建立配對成功時，回應標頭 `X-StackChan-Pairing-Claim` 傳回一次性領取碼，發起端須只存於 RAM 並避免記錄。管理員透過既有 `admin:pairing` 權限確認使用者代碼。完成端點要求發起端帶回領取碼，成功後消耗領取碼並傳回既有 `PairingCompleteResponse`。Coordinator 只在 listener 記憶體保留領取碼的雜湊及期限，關閉 listener 後，未完成的發起端須重新配對。CoreS3 端的 HTTPS 呼叫與新裝置身分的政策綁定仍待驗收。
+`serve_device_pairing` 在 `127.0.0.1` 提供獨立的 CoreS3 配對 HTTPS listener。建立配對成功時，回應標頭 `X-StackChan-Pairing-Claim` 傳回一次性領取碼，發起端須只存於 RAM 並避免記錄。管理員透過既有 `admin:pairing` 權限確認使用者代碼。完成端點要求發起端帶回領取碼，成功後消耗領取碼並傳回既有 `PairingCompleteResponse`。Coordinator 只在 listener 記憶體保留領取碼的雜湊及期限，關閉 listener 後，未完成的發起端須重新配對。啟動 listener 時，操作員可透過 device_policy 指定政策 ID 與版號。已核准的配對領取憑證時，新身分、指定政策綁定、授權 grant 與配對完成狀態在同一筆 SQLite 交易寫入。設定的政策不存在、撤銷或過期時，整筆回復並拒發憑證。省略 device_policy 時維持既有人工綁定流程。重新配對的新身分取得本次指定政策，各裝置的憑證只能讀取自己的政策。CoreS3 對真實 Coordinator 的 HTTPS 呼叫仍待實機驗收。
 
 ## 4. 建議 SQLite 邏輯實體
 

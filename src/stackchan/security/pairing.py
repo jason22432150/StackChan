@@ -10,6 +10,7 @@ from typing import Any
 from stackchan.contracts import validate_pairing_message
 from stackchan.contracts.authz import Principal
 from stackchan.security.identity import issue_opaque_token
+from stackchan.security.policy import PolicyError, PolicyService
 from stackchan.security.store import SecurityStore
 
 _DEFAULT_SCOPES = {
@@ -93,17 +94,24 @@ class PairingService:
             "retryable": False,
         }
 
-    def complete(self, pairing_id: str) -> dict[str, Any]:
-        session = self._store.get_pairing(pairing_id)
-        if session is None:
-            raise PairingError("未知 pairing_id")
-        if session["status"] != "approved":
-            raise PairingError("僅核准後的配對可 complete")
-        if session["expires_at"] <= _fmt(_utc_now()):
+    def complete(self, pairing_id: str, *, device_policy: tuple[str, str] | None = None) -> dict[str, Any]:
+        with self._store.write_transaction():
+            session = self._store.get_pairing(pairing_id)
+            if session is None:
+                raise PairingError("未知 pairing_id")
+            if session["status"] != "approved":
+                raise PairingError("僅核准後的配對可 complete")
+            if session["expires_at"] > _fmt(_utc_now()):
+                return self._complete_approved(pairing_id, session, device_policy)
             self._store.set_pairing_status(pairing_id, "expired")
-            raise PairingError("配對已過期")
+        raise PairingError("配對已過期")
 
+    def _complete_approved(
+        self, pairing_id: str, session: dict[str, Any], device_policy: tuple[str, str] | None,
+    ) -> dict[str, Any]:
         subject_type = session["subject_type"]
+        if device_policy is not None and subject_type != "device":
+            raise PairingError("裝置政策僅適用於裝置配對")
         subject_id = f"{subject_type}_{secrets.token_hex(6)}"
         scopes = list(_DEFAULT_SCOPES.get(subject_type, ["dashboard:read"]))
         token = issue_opaque_token()
@@ -111,6 +119,13 @@ class PairingService:
         grant_id = f"grant_{secrets.token_hex(8)}"
 
         self._store.upsert_subject(subject_id, subject_type, session["display_name"])
+        if device_policy is not None:
+            policies = PolicyService(self._store)
+            try:
+                policies.bind_device(subject_id, *device_policy)
+                policies.issue_device_lease(subject_id)
+            except PolicyError as exc:
+                raise PairingError("配對政策無效") from exc
         self._store.issue_grant(
             grant_id=grant_id,
             subject_id=subject_id,
