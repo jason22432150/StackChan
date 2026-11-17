@@ -106,6 +106,21 @@ idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconf
 
 此映像僅供離線檢查。即使分割表與未加密映像相同，啟用 NVS 加密也會改變預設 NVS 的資料解讀方式。硬體驗收須先確認備份可回復、指定的 eFuse 金鑰用途是 `HMAC_UP`，且預設 NVS 資料與該金鑰衍生的加密設定相容。
 
+使用 `firmware.verify_nvs_efuse` 可離線核對已取得的 ESP32-S3 eFuse 摘要。摘要只需映像所設定金鑰 ID 對應的 `KEY_PURPOSE_<ID>`、`RD_DIS` 與 `WR_DIS`。工具檢查用途為 `HMAC_UP`，且金鑰槽設有讀取與寫入保護。檢查結果限於摘要中的中繼資料。摘要來源、裝置身分、金鑰能否使用及 NVS 能否回復仍須另外驗證。
+
+從 repo 根目錄可用 ESP-IDF 的 Python 重現虛擬空白槽驗證。預期檢查器回傳 `1`，表示不符合條件。符合條件回傳 `0`，摘要無效回傳 `2`。
+
+```powershell
+$report = Join-Path $env:TEMP 'p204-efuse-virtual.json'
+$output = python -m espefuse --chip esp32s3 --virt summary --format json KEY_PURPOSE_0 RD_DIS WR_DIS
+if ($LASTEXITCODE -ne 0) { throw 'espefuse summary failed' }
+$summary = $output -join "`n"
+$start = $summary.IndexOf('{')
+if ($start -lt 0) { throw 'JSON summary missing' }
+[IO.File]::WriteAllText($report, $summary.Substring($start))
+python -m firmware.verify_nvs_efuse $report --key-id 0
+```
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。
