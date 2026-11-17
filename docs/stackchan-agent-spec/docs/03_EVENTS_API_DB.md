@@ -101,6 +101,16 @@ CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket
 
 每次派送有 `attempt_id` 與有效 generation；過期 generation 的 ACK 可以記錄診斷但不得復活已失效通知。若通知 TTS 開始但隨後被 Xiaozhi 搶占，receipt 應保留 `interrupted`，不能回報 `completed`。
 
+本機配對服務可用下列 CLI 啟動。`STACKCHAN_SECURITY_PEPPER` 必須已設定為既有安全資料庫使用的 pepper；資料庫須已初始化，並具備尚未撤銷、未到期且具有 `admin:pairing` 的管理員憑證。CLI 不建立管理員、不自動核准配對，也不輸出 token 或領取碼。
+
+```powershell
+stackchan coordinator serve-pairing --security-db security.sqlite --cert coordinator-cert.pem --key coordinator-key.pem --port 9443 --policy-id desk --policy-version v1
+```
+
+`serve-pairing` 固定綁定 `127.0.0.1`，不接受 `--listen`／`--device-ip`；`--port 0` 可使用系統分配的埠，標準輸出會回報實際埠。與唯讀的 `serve-device` 分開，配對服務以 SQLite `mode=rw` 開啟既有資料庫，允許配對狀態、grant 與政策綁定寫入，但不建立檔案或初始化／遷移 schema。政策 ID 與版本皆須明確提供，領取時仍由既有交易驗證政策有效性；未知、撤銷或到期政策拒發並回復交易。啟動成功不代表指定政策已通過領取驗證。
+
+2026-11-18 驗收：`test_pairing_cli.py` 的 17 項測試通過，其中實際子程序／loopback TLS 涵蓋待核准、錯誤管理員、拒絕、成功後政策綁定、重複領取拒絕、程序重啟後舊領取碼失效與新配對成功，以及不可用政策的交易回復。另驗證缺 pepper、必要參數缺漏、非法埠、空白政策、LAN 選項拒絕、缺少／空白資料庫與啟動錯誤遮蔽。全套 pytest 302/302；host CTest 31/31。未變更韌體、未開 LAN listener；CoreS3 不能直接連至本機 loopback，受來源限制的 LAN 配對及實機驗收仍待完成。
+
 ## 7. TTL、資料保留、背壓
 
 - TTL 僅控制**是否仍值得主動呈現**，資料保留則控制 Bridge／Coordinator 的歷史清理。

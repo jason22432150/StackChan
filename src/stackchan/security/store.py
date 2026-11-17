@@ -19,20 +19,25 @@ def _utc_now() -> str:
 
 
 class SecurityStore:
-    """獨立安全資料庫（憑證僅存雜湊）。"""
+    """獨立安全資料庫（憑證僅存雜湊）。existing_only 禁止建立或初始化 schema。"""
 
-    def __init__(self, path: str | Path, *, hasher: TokenHasher, read_only: bool = False) -> None:
+    def __init__(
+        self, path: str | Path, *, hasher: TokenHasher, read_only: bool = False, existing_only: bool = False,
+    ) -> None:
         self.path = Path(path)
         self._hasher = hasher
-        location = f"{self.path.resolve().as_uri()}?mode=ro" if read_only else self.path
-        self._conn = sqlite3.connect(location, uri=read_only, isolation_level=None)
+        mode = "ro" if read_only else "rw"
+        location = f"{self.path.resolve().as_uri()}?mode={mode}" if read_only or existing_only else self.path
+        self._conn = sqlite3.connect(location, uri=read_only or existing_only, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         try:
             self._conn.execute("PRAGMA foreign_keys = ON")
-            if read_only:
+            if read_only or existing_only:
                 self._conn.execute(
                     "SELECT 1 FROM subjects, authorization_grants, privacy_policies, device_policy_bindings LIMIT 0"
                 )
+                if existing_only:
+                    self._conn.execute("SELECT 1 FROM pairing_sessions LIMIT 0")
             else:
                 self.initialize_schema()
         except sqlite3.Error:

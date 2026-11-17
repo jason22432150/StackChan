@@ -14,10 +14,12 @@ from typing import Sequence
 from stackchan.contracts.authz import ApiGate
 from stackchan.coordinator.device_stream_server import serve_device_stream, validate_device_listener
 from stackchan.coordinator.mvp_dispatcher import create_mvp_notification_dispatcher
+from stackchan.coordinator.pairing_server import serve_device_pairing
 from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
 from stackchan.coordinator.runtime_limits import CORE_S3_MVP_RUNTIME_LIMITS
 from stackchan.security.auth_bridge import StoreBackedTokenDirectory
 from stackchan.security.identity import TokenHasher
+from stackchan.security.pairing import PairingService
 from stackchan.security.policy import PolicyService
 from stackchan.security.store import SecurityStore
 
@@ -45,29 +47,51 @@ async def _serve(
             await server.serve_forever()
 
 
+async def _serve_pairing(
+    db: Path, pepper: bytes, tls: ssl.SSLContext, port: int, policy_id: str, policy_version: str,
+) -> None:
+    # Pairing writes grants, but must never create or migrate an operator's database.
+    with SecurityStore(db, hasher=TokenHasher(pepper), existing_only=True) as store:
+        gate = ApiGate(StoreBackedTokenDirectory(store))
+        async with await serve_device_pairing(
+            PairingService(store), gate, tls, port=port, device_policy=(policy_id, policy_version),
+        ) as server:
+            host, bound_port = server.sockets[0].getsockname()
+            print(f"Pairing ready on {host}:{bound_port} (TLS, manual approval required)", flush=True)
+            await server.serve_forever()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stackchan coordinator")
     subcommands = parser.add_subparsers(dest="command", required=True)
     serve = subcommands.add_parser("serve-device", help="serve CoreS3 policy and stream on one TLS port")
-    serve.add_argument("--security-db", required=True, type=Path, help="existing SecurityStore SQLite file")
-    serve.add_argument("--cert", required=True, type=Path, help="TLS server certificate chain in PEM format")
-    serve.add_argument("--key", required=True, type=Path, help="TLS server private key file")
-    serve.add_argument("--port", required=True, type=int, help="TLS port (0 selects a temporary port)")
+    pairing = subcommands.add_parser("serve-pairing", help="serve manually approved device pairing on loopback TLS")
+    for command in (serve, pairing):
+        command.add_argument("--security-db", required=True, type=Path, help="existing SecurityStore SQLite file")
+        command.add_argument("--cert", required=True, type=Path, help="TLS server certificate chain in PEM format")
+        command.add_argument("--key", required=True, type=Path, help="TLS server private key file")
+        command.add_argument("--port", required=True, type=int, help="TLS port (0 selects a temporary port)")
+    pairing.add_argument("--policy-id", required=True, help="policy ID to bind when issuing the device grant")
+    pairing.add_argument("--policy-version", required=True, help="explicit policy version to bind")
     serve.add_argument("--generation", required=True, type=int, help="CoreS3 Coordinator generation")
     serve.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
     serve.add_argument("--device-ip", help="the only peer IPv4 allowed with a private LAN listener")
     args = parser.parse_args(argv)
+    command = serve if args.command == "serve-device" else pairing
     if not 0 <= args.port <= 65535:
-        serve.error("--port must be between 0 and 65535")
-    if not 0 <= args.generation < (1 << 64):
-        serve.error("--generation must be a uint64")
-    try:
-        validate_device_listener(args.listen, args.device_ip)
-    except ValueError as exc:
-        serve.error(str(exc))
+        command.error("--port must be between 0 and 65535")
+    if args.command == "serve-device":
+        if not 0 <= args.generation < (1 << 64):
+            serve.error("--generation must be a uint64")
+        try:
+            validate_device_listener(args.listen, args.device_ip)
+        except ValueError as exc:
+            serve.error(str(exc))
+    elif not args.policy_id.strip() or not args.policy_version.strip():
+        pairing.error("policy ID and version must not be blank")
     pepper = os.environ.get("STACKCHAN_SECURITY_PEPPER")
     if not pepper:
-        serve.error("set STACKCHAN_SECURITY_PEPPER to the existing store's pepper")
+        command.error("set STACKCHAN_SECURITY_PEPPER to the existing store's pepper")
 
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -77,8 +101,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("error: could not load the TLS certificate and key", file=sys.stderr)
         return 1
     try:
-        asyncio.run(_serve(args.security_db, pepper.encode(), tls, args.port, args.generation,
-                           args.listen, args.device_ip))
+        if args.command == "serve-pairing":
+            asyncio.run(_serve_pairing(args.security_db, pepper.encode(), tls, args.port,
+                                       args.policy_id, args.policy_version))
+        else:
+            asyncio.run(_serve(args.security_db, pepper.encode(), tls, args.port, args.generation,
+                               args.listen, args.device_ip))
     except DatabaseError:
         print("error: could not open the existing security database", file=sys.stderr)
         return 1
