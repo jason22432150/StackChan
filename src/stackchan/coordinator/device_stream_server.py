@@ -12,11 +12,13 @@ from sqlite3 import Error as DatabaseError
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
-from websockets.http11 import Request
+from websockets.http11 import Request, Response
 
 from stackchan.contracts.validate import ContractValidationError
 from stackchan.coordinator.device_stream import encode_heartbeat, encode_notification_intent
 from stackchan.coordinator.dispatch import NotificationDispatcher
+from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
+from stackchan.coordinator.policy_lease_server import build_device_policy_response
 
 
 def _device_credentials(headers: Headers) -> tuple[str, str, str] | None:
@@ -42,8 +44,9 @@ def serve_device_stream(
     generation: int,
     heartbeat_interval: float,
     pong_timeout: float,
+    policy_leases: DevicePolicyLeaseService | None = None,
 ) -> serve:
-    """Create an asyncio server. The dispatcher and its DB belong to this loop."""
+    """Create a loopback TLS server, optionally serving device policy on the same port."""
     if tls.protocol != ssl.PROTOCOL_TLS_SERVER or tls.minimum_version < ssl.TLSVersion.TLSv1_2:
         raise ValueError("device stream requires a TLS server context with TLS 1.2 or newer")
     if not all(isfinite(value) and value > 0 for value in (heartbeat_interval, pong_timeout)):
@@ -53,8 +56,29 @@ def serve_device_stream(
     if type(generation) is not int or not 0 <= generation < (1 << 64):
         raise ValueError("device stream generation must be a uint64")
 
-    def process_request(socket: ServerConnection, request: Request):
+    def process_request(socket: ServerConnection, request: Request) -> Response | None:
         if request.path != "/v1/device-stream":
+            if policy_leases is not None:
+                authorization = request.headers.get_all("Authorization")
+                try:
+                    policy = build_device_policy_response(
+                        policy_leases, request.path, authorization[0] if len(authorization) == 1 else None,
+                        method=request.method, protocol=request.protocol,
+                    )
+                except DatabaseError:
+                    return socket.respond(HTTPStatus.SERVICE_UNAVAILABLE, "Unavailable\n")
+                if policy is not None:
+                    status, body = policy
+                    return Response(
+                        status.value,
+                        status.phrase,
+                        Headers([
+                            ("Content-Type", "application/json"),
+                            ("Content-Length", str(len(body))),
+                            ("Connection", "close"),
+                        ]),
+                        body,
+                    )
             return socket.respond(HTTPStatus.NOT_FOUND, "Not Found\n")
         credentials = _device_credentials(request.headers)
         try:

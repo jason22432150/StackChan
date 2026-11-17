@@ -46,6 +46,29 @@ def _error_body(code: str, message: str) -> bytes:
     ).encode("utf-8")
 
 
+def build_device_policy_response(
+    leases: DevicePolicyLeaseService,
+    target: str,
+    authorization_header: str | None,
+    *,
+    method: str = "GET",
+    protocol: str = "HTTP/1.1",
+) -> tuple[HTTPStatus, bytes] | None:
+    """Build the JSON response for a matching policy route."""
+    match = _POLICY_PATH.fullmatch(target.split("?", 1)[0])
+    if match is None:
+        return None
+    if protocol != "HTTP/1.1":
+        return HTTPStatus.BAD_REQUEST, _error_body("invalid_request", "HTTP/1.1 is required")
+    if method != "GET":
+        return HTTPStatus.METHOD_NOT_ALLOWED, _error_body("invalid_request", "only GET is supported")
+    try:
+        lease = leases.get_device_policy(match.group(1), authorization_header=authorization_header)
+    except AuthorizationError as exc:
+        return HTTPStatus(exc.http_status), _error_body(exc.code, exc.message)
+    return HTTPStatus.OK, json.dumps(lease.as_openapi_policy(), separators=(",", ":")).encode("utf-8")
+
+
 async def _read_request(reader: StreamReader) -> tuple[str, str, dict[str, str]] | None:
     raw = bytearray()
     while b"\r\n\r\n" not in raw and len(raw) <= _MAX_HEADER_BYTES:
@@ -89,8 +112,6 @@ async def _handle_client(
             ))
             return
         method, target, headers = parsed
-        path = target.split("?", 1)[0]
-        match = _POLICY_PATH.match(path)
         if method != "GET":
             writer.write(_http_response(
                 HTTPStatus.METHOD_NOT_ALLOWED,
@@ -98,28 +119,16 @@ async def _handle_client(
                 content_type="application/json",
             ))
             return
-        if match is None:
+        response = build_device_policy_response(leases, target, headers.get("authorization"))
+        if response is None:
             writer.write(_http_response(
                 HTTPStatus.NOT_FOUND,
                 _error_body("not_found", "unknown path"),
                 content_type="application/json",
             ))
             return
-        device_id = match.group(1)
-        try:
-            lease = leases.get_device_policy(
-                device_id,
-                authorization_header=headers.get("authorization"),
-            )
-        except AuthorizationError as exc:
-            writer.write(_http_response(
-                HTTPStatus(exc.http_status),
-                _error_body(exc.code, exc.message),
-                content_type="application/json",
-            ))
-            return
-        body = json.dumps(lease.as_openapi_policy(), separators=(",", ":")).encode("utf-8")
-        writer.write(_http_response(HTTPStatus.OK, body, content_type="application/json"))
+        status, body = response
+        writer.write(_http_response(status, body, content_type="application/json"))
     except (UnicodeDecodeError, ConnectionResetError, asyncio.IncompleteReadError):
         try:
             writer.write(_http_response(
