@@ -6,7 +6,11 @@
 #include <stackchan/notifications/notification_credentials.h>
 #include <string>
 #include <string_view>
+#include <thread>
 
+using stackchan::notifications::NotificationCredentialLease;
+using stackchan::notifications::NotificationCredentials;
+using stackchan::notifications::PendingNotificationCredentials;
 using stackchan::notifications::loadNotificationCredentials;
 
 namespace {
@@ -91,8 +95,61 @@ int nvs_get_str(nvs_handle_t handle, const char* key, char* out, std::size_t* si
     return ESP_OK;
 }
 
+void testRamCredentialHandoff()
+{
+    constexpr std::uint64_t now = 1000;
+    constexpr std::uint64_t grant_lifetime = 12ULL * 60 * 60 * 1000;
+    const NotificationCredentialLease lease{{
+        valid_strings.at("host"), 8443, valid_strings.at("ca_pem"),
+        valid_strings.at("token"), valid_strings.at("device_id"),
+    }, now + grant_lifetime};
+    PendingNotificationCredentials pending;
+    expect(!pending.take(now), "new RAM store starts empty");
+    expect(!pending.stage(lease, 0), "unsynchronized clock cannot stage");
+    expect(!pending.stage(lease, lease.expires_at_utc_ms), "expired grant cannot stage");
+    expect(!pending.stage(lease, now - 1), "grant beyond pairing lifetime cannot stage");
+    expect(pending.stage(lease, now), "valid grant can stage without NVS");
+
+    for (auto field : {&NotificationCredentials::coordinator_host, &NotificationCredentials::device_id,
+                       &NotificationCredentials::token, &NotificationCredentials::coordinator_ca_pem}) {
+        auto invalid = lease;
+        (invalid.credentials.*field).clear();
+        expect(!pending.stage(invalid, now), "invalid fields cannot replace a pending grant");
+    }
+    auto invalid = lease;
+    invalid.credentials.port = 0;
+    expect(!pending.stage(invalid, now), "invalid port cannot replace a pending grant");
+    const auto taken = pending.take(lease.expires_at_utc_ms - 1);
+    expect(taken && taken->credentials.token == lease.credentials.token &&
+               taken->expires_at_utc_ms == lease.expires_at_utc_ms,
+           "handoff retains the original token and expiry");
+    expect(!pending.take(lease.expires_at_utc_ms - 1), "grant can be consumed only once");
+
+    expect(pending.stage(lease, now), "grant can be staged again");
+    expect(!pending.take(lease.expires_at_utc_ms), "exact expiry clears pending grant");
+    expect(!pending.take(now), "clock rollback cannot resurrect an expired grant");
+    expect(pending.stage(lease, now), "grant can stage after expiry");
+    expect(!pending.take(now - 1) && !pending.take(now), "clock rollback clears pending grant");
+    expect(pending.stage(lease, now + 1), "grant can stage at a later time");
+    expect(!pending.stage(lease, now) && !pending.take(now + 1), "rollback while staging clears pending grant");
+    expect(pending.stage(lease, now), "grant can be staged before cancellation");
+    pending.clear();
+    expect(!pending.take(now), "clear cancels the handoff");
+
+    expect(pending.stage(lease, now), "grant can be staged for competing consumers");
+    bool first = false;
+    bool second = false;
+    std::thread left([&] { first = pending.take(now).has_value(); });
+    std::thread right([&] { second = pending.take(now).has_value(); });
+    left.join();
+    right.join();
+    expect(first != second, "only one concurrent consumer can take the grant");
+    expect(opens == 0 && closes == 0, "RAM handoff does not touch NVS");
+}
+
 int main()
 {
+    testRamCredentialHandoff();
 #ifndef CONFIG_NVS_ENCRYPTION
     expect(!loadNotificationCredentials() && opens == 0, "unencrypted NVS is never opened");
 #else
