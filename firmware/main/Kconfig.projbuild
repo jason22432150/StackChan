@@ -29,13 +29,12 @@ config STACKCHAN_R006_REVOKE_PROBE
         Bench builds only; leave disabled for normal firmware.
 
 config STACKCHAN_AGENT_NOTIFICATIONS
-    bool "Wire Agent NotificationProductLoop into stackchan update task (P2-04)"
+    bool "Allow local requests to start the Agent notification task (P2-04)"
     default n
     help
-        Call NotificationProductRuntime tick outside the LVGL lock each update
-        iteration. Does not open TLS/WebSocket without an explicit provisioned
-        start. Uses Null UI until P2-08 Avatar present. Leave disabled unless
-        you are developing the device-stream product path.
+        An explicit local request starts a separate task for TLS and stream
+        polling. The display update task only publishes Xiaozhi activity.
+        Uses Null UI until P2-08 Avatar integration.
 
 endmenu
 

@@ -15,8 +15,7 @@ static std::unique_ptr<Hal> _hal_instance;
 static const std::string_view _tag = "HAL";
 
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
-#include <stackchan/notifications/notification_product_runtime.h>
-#include <stackchan/notifications/notification_utc_clock.h>
+#include <stackchan/notifications/notification_product_task.h>
 #endif
 
 #if CONFIG_STACKCHAN_R006_REVOKE_PROBE
@@ -260,10 +259,6 @@ static void _stackchan_update_task(void* param)
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
     RuntimeBaseline baseline;
 #endif
-#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
-    stackchan::notifications::initNotificationProductRuntime();
-#endif
-
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(20));
 
@@ -273,12 +268,7 @@ static void _stackchan_update_task(void* param)
         tools::update_reminders();
 
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
-        // P2-04：網路／Fail-Closed tick 必須在 LVGL lock 外，避免持鎖等 socket。
-        {
-            const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
-            stackchan::notifications::tickNotificationProductRuntime(
-                now_ms, stackchan::notifications::notificationUtcMs(), !hal_bridge::is_xiaozhi_idle());
-        }
+        stackchan::notifications::publishNotificationXiaozhiBusy(!hal_bridge::is_xiaozhi_idle());
 #endif
 
         {

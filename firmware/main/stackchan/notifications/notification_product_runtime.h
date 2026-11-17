@@ -7,7 +7,7 @@
 namespace stackchan::notifications {
 
 /**
- * P2-04 產品路徑常駐殼層（僅在 CONFIG_STACKCHAN_AGENT_NOTIFICATIONS 時由 Hal 編譯呼叫）。
+ * P2-04 產品路徑。由專用通知任務初始化並持有 client。
  *
  * - 預設不開啟 TLS／WebSocket（無憑證絕不 connect）
  * - tick 必須在 LVGL lock 外呼叫
@@ -35,7 +35,7 @@ bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation)
 /** 產品 stream 是否已 upgrade（client.started）。 */
 bool isNotificationProductStreamArmed();
 
-/** 每輪 update task：可選轉發 Xiaozhi Busy／Idle，再 poll stream（若已 start）或 Idle。 */
+/** 專用通知任務每輪轉發 Xiaozhi Busy／Idle，並 poll 已啟用的 stream。 */
 void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, bool xiaozhi_busy);
 
 }  // namespace stackchan::notifications

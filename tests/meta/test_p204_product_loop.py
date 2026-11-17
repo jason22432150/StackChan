@@ -28,13 +28,17 @@ def test_kconfig_default_disabled() -> None:
     assert "default n" in block.split("\n", 8)[0:8] or "\n    default n\n" in block[:200]
 
 
-def test_hal_wires_tick_outside_lvgl_guard() -> None:
+def test_hal_publishes_activity_and_worker_owns_stream() -> None:
     text = HAL.read_text(encoding="utf-8")
+    task = (ROOT / "firmware/main/stackchan/notifications/notification_product_task.cpp").read_text(
+        encoding="utf-8"
+    )
     assert "CONFIG_STACKCHAN_AGENT_NOTIFICATIONS" in text
-    assert "tickNotificationProductRuntime" in text
-    assert "initNotificationProductRuntime" in text
-    # 掛點註解強調 lock 外
-    assert "LVGL lock 外" in text or "outside the LVGL lock" in text.lower() or "LVGL lock" in text
+    assert "publishNotificationXiaozhiBusy" in text
+    assert "tickNotificationProductRuntime" not in text
+    assert "fetchAndArmNotificationProductRuntime" not in text
+    assert "tickNotificationProductRuntime" in task
+    assert "fetchAndArmNotificationProductRuntime" in task
 
 
 def test_runtime_does_not_auto_start_tls() -> None:
