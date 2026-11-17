@@ -54,6 +54,18 @@ target_include_directories(notification_presenter_test PRIVATE ../main)
 target_compile_features(notification_presenter_test PRIVATE cxx_std_17)
 add_test(NAME notification_presenter_test COMMAND $<TARGET_FILE:notification_presenter_test>)
 
+add_executable(fail_closed_guard_test
+    fail_closed_guard_test.cpp
+    ../main/stackchan/notifications/fail_closed_guard.cpp
+    ../main/stackchan/notifications/notification_presenter.cpp
+    ../main/stackchan/notifications/resource_arbiter.cpp
+    ../main/stackchan/notifications/notification_controller.cpp
+    ../main/stackchan/notifications/presentation_receipt.cpp
+)
+target_include_directories(fail_closed_guard_test PRIVATE ../main)
+target_compile_features(fail_closed_guard_test PRIVATE cxx_std_17)
+add_test(NAME fail_closed_guard_test COMMAND $<TARGET_FILE:fail_closed_guard_test>)
+
 add_executable(runtime_limits_test
     runtime_limits_test.cpp
     ../main/stackchan/notifications/runtime_limits.cpp

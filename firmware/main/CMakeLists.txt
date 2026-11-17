@@ -34,6 +34,7 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/presentation_receipt.cpp"
     "stackchan/notifications/notification_presenter.cpp"
     "stackchan/notifications/notification_lvgl_hooks.cpp"
+    "stackchan/notifications/fail_closed_guard.cpp"
     "stackchan/notifications/device_stream_ingress.cpp"
     "stackchan/notifications/device_stream_json.cpp"
     "stackchan/notifications/device_stream_tls_client.cpp"

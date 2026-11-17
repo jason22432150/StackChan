@@ -43,6 +43,8 @@ P2-06 已落地 `NotificationPresenter`＋`LvglLockedUiPort`＋`makeHalLvglLockH
 
 P2-07 已落地 `PresentationReceiptTracker`＋`encodePresentationReceiptJson`：裝置端產生 accepted／started／completed／interrupted／cancelled／failed 收據；相同 receipt_id 轉移與 Coordinator 多次 ACK 冪等；compact JSON 對齊 `presentation-receipt.schema.json`（金樣契約測試）。`link_anchor` 保留編碼進入點且不啟動網路／UI。尚未由 Presenter 驅動或經 HTTP／stream 上報。
 
+P2-08 軟路徑已落地 `FailClosedGuard`：偵測 Controller Active／Recovering→Suspended（心跳逾時）或 transport 顯式斷線時，同步 `Presenter.interrupt`、可選 `interrupted` 收據與清屏；不觸及 Xiaozhi。host CTest 覆蓋 T-SEC-01 軟行為。CoreS3 實機 Gate G3 與 R-006 失聯上界仍未關閉。
+
 ### Task／執行緒約束
 
 - Transport 網路回呼**不得**直接修改 LVGL、AudioCodec、Servo；應用有界 Queue 發送短命令與 generation。
