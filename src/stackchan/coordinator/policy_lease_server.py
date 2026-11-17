@@ -27,11 +27,13 @@ _ERROR_CODES = frozenset({
 })
 
 
-def _http_response(status: HTTPStatus, body: bytes, *, content_type: str) -> bytes:
+def _http_response(status: HTTPStatus, body: bytes, *, content_type: str, no_store: bool = False) -> bytes:
+    cache_header = "Cache-Control: no-store\r\n" if no_store else ""
     headers = (
         f"HTTP/1.1 {status.value} {status.phrase}\r\n"
         f"Content-Type: {content_type}\r\n"
         f"Content-Length: {len(body)}\r\n"
+        f"{cache_header}"
         "Connection: close\r\n"
         "\r\n"
     ).encode("ascii")

@@ -226,12 +226,19 @@ paths:
       responses:
         '200':
           description: Challenge created; user must confirm out-of-band
+          headers:
+            X-StackChan-Pairing-Claim:
+              description: Secret issued to the initiating device for one-time redemption. Keep in RAM and out of logs.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PairingChallenge'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /v1/pairing/sessions/{pairingId}/confirm:
     post:
       operationId: confirmPairing
@@ -274,6 +281,12 @@ paths:
         - name: pairingId
           in: path
           required: true
+          schema:
+            type: string
+        - name: X-StackChan-Pairing-Claim
+          in: header
+          required: true
+          description: Claim secret returned to the initiating device when the session was created.
           schema:
             type: string
       responses:
