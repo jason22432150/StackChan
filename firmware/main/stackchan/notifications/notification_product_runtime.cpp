@@ -171,6 +171,11 @@ bool finishNotificationProductPairing(std::string_view pairing_id, std::string_v
         before_stage);
 }
 
+void discardPendingNotificationProductCredentials()
+{
+    pendingCredentials().clear();
+}
+
 NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation)
 {
     auto& rt = runtime();

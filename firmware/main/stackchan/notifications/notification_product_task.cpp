@@ -1,6 +1,7 @@
 #include "notification_product_task.h"
 
 #include "notification_product_runtime.h"
+#include "notification_pairing_client.h"
 #include "notification_utc_clock.h"
 
 #include <atomic>
@@ -9,6 +10,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <new>
+#include <mutex>
+#include <utility>
+#include <algorithm>
 #include <sdkconfig.h>
 
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS && CONFIG_STACKCHAN_RUNTIME_BASELINE
@@ -23,6 +27,24 @@ std::atomic_flag worker_active = ATOMIC_FLAG_INIT;
 std::atomic<bool> xiaozhi_busy{true};
 constexpr unsigned kWorkerStackBytes = 8192;
 constexpr unsigned kWorkerPriority = 2;
+std::mutex pairing_status_mutex;
+NotificationPairingStatus pairing_status;
+std::atomic<bool> pairing_cancelled{false};
+
+void setPairingStatus(NotificationPairingState state, std::string_view code = {})
+{
+    const std::lock_guard lock(pairing_status_mutex);
+    pairing_status = {};
+    pairing_status.state = state;
+    std::copy_n(code.begin(), std::min(code.size(), pairing_status.user_code.size() - 1),
+                pairing_status.user_code.begin());
+}
+
+struct PairingRequest {
+    NotificationPairingEndpoint endpoint;
+    std::uint16_t stream_port;
+    std::uint64_t generation;
+};
 
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
 const char* bootstrapResultName(NotificationBootstrapResult result)
@@ -52,14 +74,14 @@ void logNotificationResources(const char* phase, const char* result)
 }
 #endif
 
-void runNotificationProductStream(void* argument)
+void runProductStream(std::uint64_t generation, bool paired)
 {
-    auto* request = static_cast<std::uint64_t*>(argument);
-    const auto generation = *request;
-    delete request;
     initNotificationProductRuntime();
     const auto result = fetchAndArmNotificationProductRuntime(generation);
     const bool upgraded = result == NotificationBootstrapResult::Upgraded;
+    if (paired) {
+        setPairingStatus(upgraded ? NotificationPairingState::Connected : NotificationPairingState::Failed);
+    }
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
     logNotificationResources(upgraded ? "upgraded" : "bootstrap_failed", bootstrapResultName(result));
 #endif
@@ -74,6 +96,59 @@ void runNotificationProductStream(void* argument)
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
         logNotificationResources("disconnected", "not_applicable");
 #endif
+    }
+    if (paired && upgraded) {
+        setPairingStatus(NotificationPairingState::Idle);
+    }
+    worker_active.clear();
+    vTaskDelete(nullptr);
+}
+
+void runNotificationProductStream(void* argument)
+{
+    auto* request = static_cast<std::uint64_t*>(argument);
+    const auto generation = *request;
+    delete request;
+    runProductStream(generation, false);
+}
+
+bool pairUntilDelivered(PairingRequest* request)
+{
+    NotificationPairingClient client;
+    auto code = pairing_cancelled.load() ? std::nullopt : client.start(std::move(request->endpoint), request->stream_port);
+    delete request;
+    if (code) {
+        setPairingStatus(NotificationPairingState::AwaitingApproval, *code);
+        while (!pairing_cancelled.load()) {
+            const auto result = client.complete();
+            if (result == NotificationPairingClient::Completion::Delivered) {
+                if (pairing_cancelled.load()) {
+                    discardPendingNotificationProductCredentials();
+                    break;
+                }
+                // Once Connecting is published, the notification task owns the grant.
+                setPairingStatus(NotificationPairingState::Connecting);
+                client.cancel();
+                return true;
+            }
+            if (result == NotificationPairingClient::Completion::Unavailable) {
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+    client.cancel();
+    setPairingStatus(pairing_cancelled.load() ? NotificationPairingState::Cancelled : NotificationPairingState::Failed);
+    return false;
+}
+
+void runNotificationProductPairing(void* argument)
+{
+    auto* request = static_cast<PairingRequest*>(argument);
+    const auto generation = request->generation;
+    if (pairUntilDelivered(request)) {
+        runProductStream(generation, true);
+        return;
     }
     worker_active.clear();
     vTaskDelete(nullptr);
@@ -101,9 +176,45 @@ bool requestNotificationProductStream(std::uint64_t coordinator_generation)
     // A successful task creation transfers the argument to the worker.
     return true;
 }
+
+bool requestNotificationProductPairing(NotificationPairingEndpoint endpoint, std::uint16_t stream_port,
+                                       std::uint64_t coordinator_generation)
+{
+    if (notificationUtcMs() == 0 || stream_port == 0 || endpoint.port == 0 ||
+        endpoint.coordinator_host.empty() || endpoint.coordinator_host.size() > 253 ||
+        endpoint.coordinator_ca_pem.empty() || endpoint.coordinator_ca_pem.size() > 3999 ||
+        worker_active.test_and_set()) {
+        return false;
+    }
+    pairing_cancelled.store(false);
+    setPairingStatus(NotificationPairingState::Starting);
+    auto* request = new (std::nothrow) PairingRequest{std::move(endpoint), stream_port, coordinator_generation};
+    if (!request || xTaskCreate(runNotificationProductPairing, "agent_pair", kWorkerStackBytes, request,
+                               kWorkerPriority, nullptr) != pdPASS) {
+        delete request;
+        setPairingStatus(NotificationPairingState::Failed);
+        worker_active.clear();
+        return false;
+    }
+    return true;
+}
+
+NotificationPairingStatus notificationProductPairingStatus()
+{
+    const std::lock_guard lock(pairing_status_mutex);
+    return pairing_status;
+}
+
+void cancelNotificationProductPairing() noexcept
+{
+    pairing_cancelled.store(true);
+}
 #else
 bool requestNotificationProductStream(std::uint64_t) { return false; }
 void publishNotificationXiaozhiBusy(bool) noexcept {}
+bool requestNotificationProductPairing(NotificationPairingEndpoint, std::uint16_t, std::uint64_t) { return false; }
+NotificationPairingStatus notificationProductPairingStatus() { return {}; }
+void cancelNotificationProductPairing() noexcept {}
 #endif
 
 NotificationStreamRequestResult requestConfiguredNotificationProductStream(std::string_view generation)

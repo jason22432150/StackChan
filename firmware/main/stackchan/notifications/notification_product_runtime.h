@@ -47,6 +47,8 @@ struct NotificationPairingEndpoint {
 bool beginNotificationProductPairing(std::string_view pairing_id, std::string_view challenge_expires_at,
                                      NotificationPairingEndpoint endpoint);
 bool finishNotificationProductPairing(std::string_view pairing_id, std::string_view response);
+// Discard a grant before bootstrap, for example when local pairing is cancelled.
+void discardPendingNotificationProductCredentials();
 
 /**
  * Explicitly consume a pending RAM grant and fetch policy before arming the stream.

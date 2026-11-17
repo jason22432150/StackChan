@@ -3,6 +3,7 @@
 #include <freertos/task.h>
 #include <iostream>
 #include <stackchan/notifications/notification_product_runtime.h>
+#include <stackchan/notifications/notification_pairing_client.h>
 #include <stackchan/notifications/notification_product_task.h>
 #include <stackchan/notifications/notification_utc_clock.h>
 #include <string_view>
@@ -34,6 +35,18 @@ unsigned initialized = 0;
 unsigned bootstrapped = 0;
 unsigned polled = 0;
 unsigned delays = 0;
+unsigned pairing_starts = 0;
+unsigned pairing_completions = 0;
+unsigned pairing_cancels = 0;
+unsigned discarded_grants = 0;
+bool pairing_start_succeeds = false;
+bool cancel_on_delay = false;
+bool cancel_on_delivery = false;
+unsigned pending_completions = 0;
+auto completion = stackchan::notifications::NotificationPairingClient::Completion::Unavailable;
+const stackchan::notifications::NotificationPairingEndpoint pairing_endpoint{
+    "coordinator.example", 9443, "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----",
+};
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
 std::vector<std::pair<std::string_view, std::string_view>> resource_samples;
 #endif
@@ -69,6 +82,16 @@ BaseType_t xTaskCreate(TaskFunction_t entry, const char*, unsigned, void* argume
 
 void vTaskDelay(TickType_t ticks)
 {
+    if (ticks == pdMS_TO_TICKS(1000)) {
+        const auto snapshot = stackchan::notifications::notificationProductPairingStatus();
+        expect(snapshot.state == stackchan::notifications::NotificationPairingState::AwaitingApproval &&
+                   std::string_view(snapshot.user_code.data()) == "CODE12",
+               "UI can read the code while background pairing waits");
+        if (cancel_on_delay) {
+            stackchan::notifications::cancelNotificationProductPairing();
+        }
+        return;
+    }
     expect(ticks == pdMS_TO_TICKS(20), "worker uses the notification poll interval");
     ++delays;
     publishNotificationXiaozhiBusy(false);
@@ -120,6 +143,29 @@ void ESP_LOGI(const char* tag, const char* format, const char* phase, unsigned s
 std::int64_t esp_timer_get_time() { return 123456; }
 
 namespace stackchan::notifications {
+std::optional<std::string> NotificationPairingClient::start(NotificationPairingEndpoint endpoint, std::uint16_t port)
+{
+    ++pairing_starts;
+    expect(endpoint.coordinator_host == pairing_endpoint.coordinator_host && endpoint.port == 9443 && port == 8443,
+           "worker passes both endpoint ports");
+    expect(!requestNotificationProductStream(1) && !requestNotificationProductPairing(pairing_endpoint, 8443, 1),
+           "pairing excludes stream and another pairing worker");
+    return pairing_start_succeeds ? std::optional<std::string>("CODE12") : std::nullopt;
+}
+NotificationPairingClient::Completion NotificationPairingClient::complete()
+{
+    ++pairing_completions;
+    if (pending_completions) {
+        --pending_completions;
+        return Completion::Pending;
+    }
+    if (cancel_on_delivery) {
+        cancelNotificationProductPairing();
+    }
+    return completion;
+}
+void NotificationPairingClient::cancel() { ++pairing_cancels; }
+void discardPendingNotificationProductCredentials() { ++discarded_grants; }
 std::uint64_t notificationUtcMs() noexcept { return utc_ms; }
 void initNotificationProductRuntime() { ++initialized; }
 NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t generation)
@@ -143,6 +189,11 @@ void tickNotificationProductRuntime(std::uint64_t now, std::uint64_t utc, bool b
 
 int main()
 {
+    using namespace stackchan::notifications;
+    expect(notificationProductPairingStatus().state == NotificationPairingState::Idle,
+           "pairing status starts idle");
+    expect(!requestNotificationProductPairing(pairing_endpoint, 8443, 1) && created == 0,
+           "unsynchronized pairing schedules no worker");
     for (const auto* input : {"", " 1", "1 ", "+1", "-1", "1x", "18446744073709551616", "000000000000000000001"}) {
         expect(requestConfiguredNotificationProductStream(input) == NotificationStreamRequestResult::InvalidGeneration,
                "absent, malformed and overflowing generations are rejected");
@@ -188,9 +239,74 @@ int main()
            },
            "sample exactly once at each worker transition");
 #endif
+    create_succeeds = false;
+    expect(!requestNotificationProductPairing(pairing_endpoint, 8443, 1) &&
+               notificationProductPairingStatus().state == NotificationPairingState::Failed,
+           "pairing task allocation failure is observable and releases ownership");
+    create_succeeds = true;
+    const auto startPairing = [&] {
+        expect(requestNotificationProductPairing(pairing_endpoint, 8443, 42), "local request schedules pairing");
+        expect(notificationProductPairingStatus().state == NotificationPairingState::Starting &&
+                   notificationProductPairingStatus().user_code[0] == '\0',
+               "accepted request exposes Starting without a stale code");
+    };
+    auto before_start = pairing_starts;
+    startPairing();
+    expect(pairing_starts == before_start, "request returns before HTTPS starts");
+    cancelNotificationProductPairing();
+    runScheduledTask();
+    expect(pairing_starts == before_start && notificationProductPairingStatus().state == NotificationPairingState::Cancelled,
+           "cancel before execution prevents HTTPS");
+
+    startPairing();
+    runScheduledTask();
+    expect(notificationProductPairingStatus().state == NotificationPairingState::Failed &&
+               notificationProductPairingStatus().user_code[0] == '\0', "failed start clears the code");
+    pairing_start_succeeds = true;
+    completion = NotificationPairingClient::Completion::Pending;
+    cancel_on_delay = true;
+    startPairing();
+    runScheduledTask();
+    expect(notificationProductPairingStatus().state == NotificationPairingState::Cancelled &&
+               notificationProductPairingStatus().user_code[0] == '\0', "cancel while waiting clears the code");
+    cancel_on_delay = false;
+    completion = NotificationPairingClient::Completion::Unavailable;
+    startPairing();
+    runScheduledTask();
+    expect(notificationProductPairingStatus().state == NotificationPairingState::Failed,
+           "unavailable pairing releases the worker");
+
+    completion = NotificationPairingClient::Completion::Delivered;
+    cancel_on_delivery = true;
+    const auto previous_bootstraps = bootstrapped;
+    startPairing();
+    runScheduledTask();
+    expect(discarded_grants == 1 && bootstrapped == previous_bootstraps &&
+               notificationProductPairingStatus().state == NotificationPairingState::Cancelled,
+           "cancellation during completion discards the grant before bootstrap");
+    cancel_on_delivery = false;
+    bootstrap_result = NotificationBootstrapResult::PolicyUnavailable;
+    startPairing();
+    runScheduledTask();
+    expect(bootstrapped_generation == 42 && notificationProductPairingStatus().state == NotificationPairingState::Failed,
+           "delivered pairing passes generation and reports policy failure");
+    bootstrap_result = NotificationBootstrapResult::Upgraded;
+    polled = 0;
+    publishNotificationXiaozhiBusy(true);
+    pending_completions = 1;
+    startPairing();
+    runScheduledTask();
+    expect(polled == 2 && notificationProductPairingStatus().state == NotificationPairingState::Idle &&
+               notificationProductPairingStatus().user_code[0] == '\0',
+           "approved pairing enters the stream loop and returns idle after disconnect");
 #else
     expect(!requestNotificationProductStream(7) && created == 0, "disabled feature does not create tasks");
     expect(requestConfiguredNotificationProductStream("7") == NotificationStreamRequestResult::Rejected && created == 0,
            "configured request cannot bypass the disabled feature");
+    expect(!requestNotificationProductPairing(pairing_endpoint, 8443, 1) && created == 0,
+           "disabled pairing creates no task");
+    cancelNotificationProductPairing();
+    expect(notificationProductPairingStatus().state == NotificationPairingState::Idle,
+           "disabled feature remains idle");
 #endif
 }
