@@ -66,6 +66,15 @@ target_include_directories(fail_closed_guard_test PRIVATE ../main)
 target_compile_features(fail_closed_guard_test PRIVATE cxx_std_17)
 add_test(NAME fail_closed_guard_test COMMAND $<TARGET_FILE:fail_closed_guard_test>)
 
+add_executable(notification_audio_policy_test
+    notification_audio_policy_test.cpp
+    ../main/stackchan/notifications/notification_audio_policy.cpp
+    ../main/stackchan/notifications/resource_arbiter.cpp
+)
+target_include_directories(notification_audio_policy_test PRIVATE ../main)
+target_compile_features(notification_audio_policy_test PRIVATE cxx_std_17)
+add_test(NAME notification_audio_policy_test COMMAND $<TARGET_FILE:notification_audio_policy_test>)
+
 add_executable(runtime_limits_test
     runtime_limits_test.cpp
     ../main/stackchan/notifications/runtime_limits.cpp

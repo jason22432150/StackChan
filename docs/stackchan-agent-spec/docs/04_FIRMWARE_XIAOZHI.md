@@ -103,6 +103,8 @@ P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識�
 - **A1（短提示音）尚未驗證**。已確認內建 Ogg Opus 素材與播放入口存在。啟用前仍須驗證喚醒／聆聽／回覆的搶占、共享佇列排空、撤權停止上界與原廠對話回歸。Idle 訊號只能當作狀態輸入，派送仍須通過資源與政策授權。
 - **A2（文字 TTS／語音查詢）尚未驗證**。已查到 Xiaozhi 對話播放與預先產生 Ogg 的通知路徑。Agent 文字合成、經授權的查詢及可獨立取消的呈現需要後續驗證。不得直接借用 `firmware/main/hal/audio.cpp` 的麥克風測試操作 Codec，或預設依賴額外付費 OpenAI API。
 
+P2-09：`NotificationAudioGate`＋`kMvpAgentAudioCapability=A0` 凍結純 UI；授權／Audio 租約／playCue／playTts 在 A0 下 Fail-Closed，且不連結到 `Application::PlaySound`。升級 A1／A2 需另開 Gate 與人類授權，不得以本項宣稱 TTS 完成。
+
 驗收使用本機 ESP32-S3 ELF 的符號表確認八個播放、取消與重設函式已連結，並驗證內建通知素材含 Ogg Opus 標頭（6,191 bytes）。全套 Python 回歸 150 項通過。CoreS3 音訊行為與停止時間仍待實機驗收。
 
 ## 6. Motion 安全
