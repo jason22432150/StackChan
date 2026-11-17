@@ -93,10 +93,18 @@ P2-04 產品與實機驗收沿用預設 NVS 的既有分割表、資料格式與
 ```powershell
 $buildDir = Join-Path $PWD 'build/p204-notifications'
 $sdkconfigPath = Join-Path $buildDir 'sdkconfig'
-idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.p204-notifications' build
+idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.p204-notifications' reconfigure build
 ```
 
 此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，缺少 RAM 憑證時會 Fail-Closed。這組映像已用於驗證編譯、連結與分割區容量。正向連線驗收需完成短效 RAM 憑證佈建。
+
+`reconfigure` 會重新收集 SETUP worker 原始碼並從實際 Kconfig 產生新增配對設定，避免沿用舊建置清單。已備妥鎖定依賴時，可在目前 PowerShell 設定 `$env:IDF_COMPONENT_CHECK_NEW_VERSION='0'` 關閉非必要的新版本檢查；這不變更 `dependencies.lock`，也不保證 Component Manager 完全不連線。
+
+2026-11-18，上一輪配對頁面提交 `8591f15` 後，以 ESP-IDF 6.1 重新生成設定並完成 ESP32-S3 全映像建置（2,414 步）。未補入建置設定替身；實際 `sdkconfig` 的通知與 baseline 均為啟用、generation `1`、配對／串流埠分別為 `9443`／`8443`、host 與 CA 空白，NVS 加密、Flash Encryption 與 Secure Boot 均關閉。`compile_commands.json` 包含配對頁面、HTTPS client、共用 HTTPS 及通知 task；最終 ELF 的定義符號涵蓋 `NotificationPairingWorker`、`NotificationPairingClient`、`requestNotificationProductPairing`、`notificationProductPairingStatus`、`beginNotificationProductPairing`、`finishNotificationProductPairing`、`Application::Run` 與 `AudioService::Start`。
+
+`esptool image-info` 的 checksum／validation hash 有效；`stack-chan.bin` 大小 `0x3a6ee0`（3,829,472 bytes），最小 app 分割區 `0x4f0000`，餘 `0x149120`（26%）；SHA-256 `266C00B6877E78E7F69E71F15C67C56D4F5836A7968EDD0954AF3074C310BB7D`。二進位分割表與本機基準逐位元組相同，SHA-256 `48DA0866F56D9D8EB1FE786412984D8F1A4A01B3F13F965621FCB916761E1A4B`；離線 MD5／範圍檢查通過，NVS 仍為 `0x9000`／`0x4000`。Host CTest 31/31、全套 pytest 285/285 通過；上一輪頁面與通知任務專項另重跑 4/4 通過。
+
+首次建置因 GitHub 依賴檢查失敗；關閉新版本檢查後，Component Manager 在 registry 不可達時沿用既有鎖定的 64 筆依賴，lockfile 無變更。建置仍有既有元件的 Kconfig 值、私有標頭引用與未使用變數警告，未於本輪擴大修改。上述僅證明離線編譯、連結、映像完整性及分割配置；未燒錄、開啟 LAN listener、寫入 NVS 或 eFuse。空白 host／CA 不具正向配對條件。實機觸控、SNTP、CoreS3 HTTPS、重新開機後重新配對、TLS 與 task 的 heap／stack 用量，以及配對期間 Xiaozhi 喚醒／對話共存仍待驗收。
 
 要驗證加密 NVS 的完整編譯與連結，可在同一 ESP-IDF 環境用第三份 defaults 建置至另一個目錄。此設定將 ESP32-S3 的 HMAC provider 與通知路徑連結至同一映像。金鑰 ID `0` 是建置測試輸入，實機的金鑰槽、既有 NVS 資料及回復方案須另行確認。
 
@@ -127,7 +135,7 @@ python -m firmware.verify_nvs_efuse $report --sdkconfig firmware/build/p204-nvs-
 
 SETUP → Agent Notifications → Pair notifications 提供本機配對頁面。開啟頁面後，使用者按 Start pairing 才送出背景請求。待核准時顯示六位確認碼，並可按 Cancel and back 返回。頁面關閉或返回會取消由該頁面發起且仍在待核准階段的請求，進入連線階段後可離開頁面繼續使用通知。失敗、取消或斷線後可重新開始配對。
 
-配對頁面使用建置設定 `STACKCHAN_AGENT_COORDINATOR_HOST`、`STACKCHAN_AGENT_PAIRING_PORT`、`STACKCHAN_AGENT_STREAM_PORT`、`STACKCHAN_AGENT_COORDINATOR_CA_PEM` 與既有 generation。主機與 CA 預設空白，須填入受信任的 Coordinator 設定才能配對。CA 欄位可用字面上的 `\n` 表示 PEM 換行。兩個連接埠預設分別為 9443 與 8443，可依 listener 設定調整。配對請求只進入背景任務，頁面 update 在既有 LVGL lock 下讀取狀態及更新元件。完整映像、實機顯示與觸控操作仍待驗收。
+配對頁面使用建置設定 `STACKCHAN_AGENT_COORDINATOR_HOST`、`STACKCHAN_AGENT_PAIRING_PORT`、`STACKCHAN_AGENT_STREAM_PORT`、`STACKCHAN_AGENT_COORDINATOR_CA_PEM` 與既有 generation。主機與 CA 預設空白，須填入受信任的 Coordinator 設定才能配對。CA 欄位可用字面上的 `\n` 表示 PEM 換行。兩個連接埠預設分別為 9443 與 8443，可依 listener 設定調整。配對請求只進入背景任務，頁面 update 在既有 LVGL lock 下讀取狀態及更新元件。完整映像已於上述離線建置驗證，實機顯示與觸控操作仍待驗收。
 
 ## 4. 狀態仲裁矩陣
 
