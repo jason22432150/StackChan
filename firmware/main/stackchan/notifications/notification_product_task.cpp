@@ -4,6 +4,7 @@
 #include "notification_utc_clock.h"
 
 #include <atomic>
+#include <charconv>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -63,4 +64,19 @@ bool requestNotificationProductStream(std::uint64_t coordinator_generation)
 bool requestNotificationProductStream(std::uint64_t) { return false; }
 void publishNotificationXiaozhiBusy(bool) noexcept {}
 #endif
+
+NotificationStreamRequestResult requestConfiguredNotificationProductStream(std::string_view generation)
+{
+    std::uint64_t value = 0;
+    if (generation.empty() || generation.size() > 20) {
+        return NotificationStreamRequestResult::InvalidGeneration;
+    }
+    const auto* end = generation.data() + generation.size();
+    const auto [parsed_end, error] = std::from_chars(generation.data(), end, value);
+    if (error != std::errc{} || parsed_end != end) {
+        return NotificationStreamRequestResult::InvalidGeneration;
+    }
+    return requestNotificationProductStream(value) ? NotificationStreamRequestResult::Scheduled
+                                                   : NotificationStreamRequestResult::Rejected;
+}
 }  // namespace stackchan::notifications

@@ -11,6 +11,11 @@
 #include <assets/assets.h>
 #include <stackchan/stackchan.h>
 #include <apps/common/common.h>
+#include <sdkconfig.h>
+
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+#include <stackchan/notifications/notification_product_task.h>
+#endif
 
 using namespace mooncake;
 using namespace view;
@@ -152,6 +157,26 @@ void AppSetup::onOpen()
               }}},
         },
     };
+
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+    _menu_sections.push_back({
+        "Agent Notifications",
+        {{"Connect notifications", []() {
+              using namespace stackchan::notifications;
+              switch (requestConfiguredNotificationProductStream(CONFIG_STACKCHAN_AGENT_COORDINATOR_GENERATION)) {
+                  case NotificationStreamRequestResult::InvalidGeneration:
+                      view::pop_a_toast("Set Coordinator generation", view::ToastType::Warning);
+                      break;
+                  case NotificationStreamRequestResult::Rejected:
+                      view::pop_a_toast("Connection request blocked", view::ToastType::Warning);
+                      break;
+                  case NotificationStreamRequestResult::Scheduled:
+                      view::pop_a_toast("Connection requested");
+                      break;
+              }
+          }}},
+    });
+#endif
 
     LvglLockGuard lock;
 

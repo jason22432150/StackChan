@@ -7,6 +7,8 @@
 #include <stackchan/notifications/notification_utc_clock.h>
 
 using stackchan::notifications::publishNotificationXiaozhiBusy;
+using stackchan::notifications::NotificationStreamRequestResult;
+using stackchan::notifications::requestConfiguredNotificationProductStream;
 using stackchan::notifications::requestNotificationProductStream;
 
 namespace {
@@ -92,13 +94,20 @@ void tickNotificationProductRuntime(std::uint64_t now, std::uint64_t utc, bool b
 
 int main()
 {
+    for (const auto* input : {"", " 1", "1 ", "+1", "-1", "1x", "18446744073709551616", "000000000000000000001"}) {
+        expect(requestConfiguredNotificationProductStream(input) == NotificationStreamRequestResult::InvalidGeneration,
+               "absent, malformed and overflowing generations are rejected");
+    }
+    expect(created == 0, "invalid generation never creates a task");
     expect(!requestNotificationProductStream(0) && created == 0, "unsynchronized UTC creates no worker");
     utc_ms = 5000;
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
     expect(!requestNotificationProductStream(7) && created == 1, "task allocation failure rejects request");
     create_succeeds = true;
-    constexpr std::uint64_t generation = 0x1'0000'0007;
-    expect(requestNotificationProductStream(generation), "retry schedules after allocation failure");
+    constexpr auto generation = UINT64_MAX;
+    expect(requestConfiguredNotificationProductStream("18446744073709551615") ==
+               NotificationStreamRequestResult::Scheduled,
+           "retry accepts the largest valid generation");
     expect(initialized == 0 && bootstrapped == 0 && polled == 0, "caller does not run the runtime or TLS");
     expect(!requestNotificationProductStream(9) && created == 2, "pending worker rejects a duplicate");
     runScheduledTask();
@@ -108,7 +117,8 @@ int main()
 
     bootstrap_succeeds = true;
     publishNotificationXiaozhiBusy(true);
-    expect(requestNotificationProductStream(0), "bootstrap failure allows another request");
+    expect(requestConfiguredNotificationProductStream("0") == NotificationStreamRequestResult::Scheduled,
+           "bootstrap failure allows another request with generation zero");
     runScheduledTask();
     expect(initialized == 2 && bootstrapped == 2 && bootstrapped_generation == 0 &&
                polled == 2 && delays == 1 && deleted == 2,
@@ -119,5 +129,7 @@ int main()
     expect(bootstrapped_generation == 27 && polled == 2 && deleted == 3, "no automatic reconnect");
 #else
     expect(!requestNotificationProductStream(7) && created == 0, "disabled feature does not create tasks");
+    expect(requestConfiguredNotificationProductStream("7") == NotificationStreamRequestResult::Rejected && created == 0,
+           "configured request cannot bypass the disabled feature");
 #endif
 }

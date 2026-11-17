@@ -36,6 +36,15 @@ config STACKCHAN_AGENT_NOTIFICATIONS
         polling. The display update task only publishes Xiaozhi activity.
         Uses Null UI until P2-08 Avatar integration.
 
+config STACKCHAN_AGENT_COORDINATOR_GENERATION
+    string "Coordinator generation for the local notification connection"
+    depends on STACKCHAN_AGENT_NOTIFICATIONS
+    default ""
+    help
+        Set the matching Coordinator generation as an unsigned decimal
+        integer. An empty or invalid setting prevents the SETUP action
+        from starting a connection.
+
 endmenu
 
 menu "Xiaozhi Assistant"
