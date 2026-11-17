@@ -125,6 +125,10 @@ python -m firmware.verify_nvs_efuse $report --sdkconfig firmware/build/p204-nvs-
 
 `--sdkconfig` 會從目標映像的建置設定取得金鑰槽。摘要須包含該槽對應的 `KEY_PURPOSE_<ID>`。若單獨檢查指定槽位，可改用 `--key-id`。
 
+SETUP → Agent Notifications → Pair notifications 提供本機配對頁面。開啟頁面後，使用者按 Start pairing 才送出背景請求。待核准時顯示六位確認碼，並可按 Cancel and back 返回。頁面關閉或返回會取消由該頁面發起且仍在待核准階段的請求，進入連線階段後可離開頁面繼續使用通知。失敗、取消或斷線後可重新開始配對。
+
+配對頁面使用建置設定 `STACKCHAN_AGENT_COORDINATOR_HOST`、`STACKCHAN_AGENT_PAIRING_PORT`、`STACKCHAN_AGENT_STREAM_PORT`、`STACKCHAN_AGENT_COORDINATOR_CA_PEM` 與既有 generation。主機與 CA 預設空白，須填入受信任的 Coordinator 設定才能配對。CA 欄位可用字面上的 `\n` 表示 PEM 換行。兩個連接埠預設分別為 9443 與 8443，可依 listener 設定調整。配對請求只進入背景任務，頁面 update 在既有 LVGL lock 下讀取狀態及更新元件。完整映像、實機顯示與觸控操作仍待驗收。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。

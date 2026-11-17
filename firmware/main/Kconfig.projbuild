@@ -45,6 +45,31 @@ config STACKCHAN_AGENT_COORDINATOR_GENERATION
         integer. An empty or invalid setting prevents the SETUP action
         from starting a connection.
 
+config STACKCHAN_AGENT_COORDINATOR_HOST
+    string "Notification Coordinator TLS hostname"
+    depends on STACKCHAN_AGENT_NOTIFICATIONS
+    default ""
+
+config STACKCHAN_AGENT_PAIRING_PORT
+    int "Coordinator HTTPS pairing port"
+    depends on STACKCHAN_AGENT_NOTIFICATIONS
+    range 1 65535
+    default 9443
+
+config STACKCHAN_AGENT_STREAM_PORT
+    int "Coordinator notification stream port"
+    depends on STACKCHAN_AGENT_NOTIFICATIONS
+    range 1 65535
+    default 8443
+
+config STACKCHAN_AGENT_COORDINATOR_CA_PEM
+    string "Coordinator CA PEM (use literal backslash-n for line breaks)"
+    depends on STACKCHAN_AGENT_NOTIFICATIONS
+    default ""
+    help
+        Public CA certificate trusted for pairing and notification TLS.
+        Use the hostname present in the certificate. A blank value blocks pairing.
+
 endmenu
 
 menu "Xiaozhi Assistant"

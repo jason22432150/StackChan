@@ -15,6 +15,7 @@
 
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
 #include <stackchan/notifications/notification_product_task.h>
+#include "workers/notification_pairing.h"
 #endif
 
 using namespace mooncake;
@@ -161,7 +162,11 @@ void AppSetup::onOpen()
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
     _menu_sections.push_back({
         "Agent Notifications",
-        {{"Connect notifications", []() {
+        {{"Pair notifications", [this]() {
+              _destroy_menu = true;
+              _worker = std::make_unique<NotificationPairingWorker>();
+          }},
+         {"Connect notifications", []() {
               using namespace stackchan::notifications;
               switch (requestConfiguredNotificationProductStream(CONFIG_STACKCHAN_AGENT_COORDINATOR_GENERATION)) {
                   case NotificationStreamRequestResult::InvalidGeneration:
