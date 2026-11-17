@@ -1,6 +1,7 @@
 #include "stream_session_start.h"
 
 #include "runtime_limits.h"
+#include "stream_bootstrap.h"
 
 namespace stackchan::notifications {
 
@@ -22,6 +23,19 @@ bool armProvisionedDeviceStream(DeviceStreamTlsClient& client, const StreamProvi
         return false;
     }
     return startProvisionedDeviceStream(client, provision);
+}
+
+bool fetchAndArmDeviceStream(PolicyLeaseHttpClient& http, DeviceStreamTlsClient& client,
+                             const StreamProvisionRequest& request)
+{
+    if (client.started()) {
+        return false;
+    }
+    const auto provision = fetchAndProvisionDeviceStream(http, request);
+    if (!provision) {
+        return false;
+    }
+    return armProvisionedDeviceStream(client, *provision);
 }
 
 bool armProvisionedDeviceStreamLinked()
