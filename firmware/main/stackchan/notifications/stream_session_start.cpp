@@ -15,4 +15,18 @@ bool startProvisionedDeviceStream(DeviceStreamTlsClient& client, const StreamPro
     return client.start(provision.config);
 }
 
+bool armProvisionedDeviceStream(DeviceStreamTlsClient& client, const StreamProvision& provision)
+{
+    // 已連線則拒絕，避免雙 WebSocket／覆寫 session。
+    if (client.started()) {
+        return false;
+    }
+    return startProvisionedDeviceStream(client, provision);
+}
+
+bool armProvisionedDeviceStreamLinked()
+{
+    return true;
+}
+
 }  // namespace stackchan::notifications

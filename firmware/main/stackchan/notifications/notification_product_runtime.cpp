@@ -8,6 +8,7 @@
 #include "presentation_receipt.h"
 #include "resource_arbiter.h"
 #include "runtime_limits.h"
+#include "stream_session_start.h"
 
 namespace stackchan::notifications {
 namespace {
@@ -47,6 +48,21 @@ void initNotificationProductRuntime()
     auto& rt = runtime();
     rt.ready = true;
     // 刻意不呼叫 start／fetch：缺憑證時保持 Fail-Closed Idle。
+}
+
+bool armNotificationProductRuntime(const StreamProvision& provision)
+{
+    auto& rt = runtime();
+    if (!rt.ready) {
+        return false;
+    }
+    return armProvisionedDeviceStream(rt.client, provision);
+}
+
+bool isNotificationProductStreamArmed()
+{
+    auto& rt = runtime();
+    return rt.ready && rt.client.started();
 }
 
 void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, bool xiaozhi_busy)

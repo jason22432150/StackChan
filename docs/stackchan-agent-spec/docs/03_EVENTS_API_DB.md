@@ -65,6 +65,8 @@ P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `C
 
 P2-04 產品主迴圈：`NotificationProductLoop` 以單一 `tick` 組裝 FailClosedGuard＋佇列 takeNext＋Presenter；`notificationProductLoopPollClient` 僅在 `DeviceStreamTlsClient::started()` 時 poll（未佈建不開 TLS）。`CONFIG_STACKCHAN_AGENT_NOTIFICATIONS`（default n）於 `_stackchan_update_task` 在 LVGL lock 外呼叫 `tickNotificationProductRuntime`；預設韌體不啟用。實機 Coordinator 連線與 Avatar UI 仍待後續 Gate。
 
+P2-04 憑證／arm：`armProvisionedDeviceStream`（已 started 則拒絕）與 `fetchAndArmDeviceStream`（GET policy→provision→arm）提供 Fail-Closed 軟路徑；`armNotificationProductRuntime` 僅接受已驗證 `StreamProvision`，init 不自動 fetch。host 替身測試覆蓋空 provision／雙重 arm／401 upgrade。NVS 憑證源與實機 Coordinator 仍待後續。
+
 CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket，固定連線到設定主機的 `/v1/device-stream`。它使用明確提供的 Coordinator CA 並保留主機名稱檢查，僅接受 HTTP 101，遇到 HTTP 轉址會關閉連線。呼叫端須在單一工作任務呼叫 `start`、`poll`、`takeNext`、`stop`，並供應已同步的時鐘、已驗證的政策快照及封包上限。單一 WebSocket 文字框可分多次 socket read 收取，超過上限或遇到 WebSocket 層分片會撤銷 session。斷線與心跳逾時同樣停權。Windows 測試使用 transport 替身，裝置憑證握手與到 Coordinator 的端到端網路路徑仍待實機驗證。
 
 ## 4. 建議 SQLite 邏輯實體

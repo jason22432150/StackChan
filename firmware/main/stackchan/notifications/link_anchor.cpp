@@ -26,6 +26,9 @@ using stackchan::notifications::encodePresentationReceiptJson;
 using stackchan::notifications::failClosedGuardPollProbe;
 using stackchan::notifications::failClosedRevokeProbeLinked;
 using stackchan::notifications::mvpSoftWorstCaseRevokeMs;
+using stackchan::notifications::armProvisionedDeviceStream;
+using stackchan::notifications::armProvisionedDeviceStreamLinked;
+using stackchan::notifications::fetchAndArmDeviceStream;
 using stackchan::notifications::fetchAndProvisionDeviceStream;
 using stackchan::notifications::makeHalLvglLockHooks;
 using stackchan::notifications::mvpAgentAudioIsA0;
@@ -40,7 +43,10 @@ const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&sanitizeRuntimeProfile),
     reinterpret_cast<RetainFn>(&parsePolicyLeaseJson),
     reinterpret_cast<RetainFn>(&fetchAndProvisionDeviceStream),
+    reinterpret_cast<RetainFn>(&fetchAndArmDeviceStream),
     reinterpret_cast<RetainFn>(&startProvisionedDeviceStream),
+    reinterpret_cast<RetainFn>(&armProvisionedDeviceStream),
+    reinterpret_cast<RetainFn>(&armProvisionedDeviceStreamLinked),
     reinterpret_cast<RetainFn>(&resourceArbiterCommitGate),
     reinterpret_cast<RetainFn>(&encodePresentationReceiptJson),
     reinterpret_cast<RetainFn>(&notificationPresenterMayPresent),

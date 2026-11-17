@@ -13,6 +13,9 @@
 using stackchan::notifications::DeviceStreamTlsClient;
 using stackchan::notifications::PolicyLeaseHttpClient;
 using stackchan::notifications::StreamProvisionRequest;
+using stackchan::notifications::armProvisionedDeviceStream;
+using stackchan::notifications::armProvisionedDeviceStreamLinked;
+using stackchan::notifications::fetchAndArmDeviceStream;
 using stackchan::notifications::fetchAndProvisionDeviceStream;
 using stackchan::notifications::kCoreS3MvpRuntimeProfile;
 using stackchan::notifications::startProvisionedDeviceStream;
@@ -62,6 +65,10 @@ void esp_transport_ssl_set_cert_data(esp_transport_handle_t handle, const char* 
 }
 esp_transport_handle_t esp_transport_ws_init(esp_transport_handle_t parent)
 {
+    // fetchAndArm：HTTP 結束後才會 ws_init；自動切到 Stream phase。
+    if (phase == Phase::Http) {
+        phase = Phase::Stream;
+    }
     expect(phase == Phase::Stream, "WebSocket only during stream start");
     expect(parent == &tls, "WebSocket parent is TLS");
     return &socket;
@@ -152,4 +159,52 @@ int main()
     expect(!client.takeNext(), "upgrade alone cannot enqueue");
     client.stop();
     expect(close_calls > 0 && destroy_calls >= close_calls, "stream stop releases transports");
+
+    // --- P2-04：armProvisionedDeviceStream ---
+    expect(!armProvisionedDeviceStream(client, {}), "arm empty provision fails closed");
+    expect(!client.started(), "empty arm leaves client idle");
+
+    phase = Phase::Stream;
+    http_status = 101;
+    expect(armProvisionedDeviceStream(client, *provision), "arm valid provision starts client");
+    expect(client.started(), "client.started after arm");
+    expect(!armProvisionedDeviceStream(client, *provision), "second arm fails closed");
+    client.stop();
+
+    // --- P2-04：fetchAndArmDeviceStream ---
+    {
+        DeviceStreamTlsClient armed(kCoreS3MvpRuntimeProfile.controller,
+                                    kCoreS3MvpRuntimeProfile.max_frame_age_ms);
+        phase = Phase::Stream;
+        http_status = 101;
+        expect(armProvisionedDeviceStream(armed, *provision), "fixture arm");
+        expect(!fetchAndArmDeviceStream(http, armed, request), "fetchAndArm rejects already started");
+        armed.stop();
+    }
+
+    {
+        DeviceStreamTlsClient fresh(kCoreS3MvpRuntimeProfile.controller,
+                                    kCoreS3MvpRuntimeProfile.max_frame_age_ms);
+        phase = Phase::Http;
+        connect_result = 0;
+        http_response = httpOk(body);
+        http_status = 101;
+        expect(fetchAndArmDeviceStream(http, fresh, request), "fetchAndArm end-to-end arms stream");
+        expect(fresh.started(), "fresh client started after fetchAndArm");
+        expect(ws_path == "/v1/device-stream", "fetchAndArm uses device-stream path");
+        fresh.stop();
+    }
+
+    {
+        DeviceStreamTlsClient denied(kCoreS3MvpRuntimeProfile.controller,
+                                     kCoreS3MvpRuntimeProfile.max_frame_age_ms);
+        phase = Phase::Http;
+        connect_result = 0;
+        http_response = httpOk(body);
+        http_status = 401;
+        expect(!fetchAndArmDeviceStream(http, denied, request), "fetchAndArm upgrade 401 fails closed");
+        expect(!denied.started(), "denied client not left started");
+    }
+
+    expect(armProvisionedDeviceStreamLinked(), "arm link retain probe");
 }

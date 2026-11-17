@@ -1,5 +1,7 @@
 #include "stream_bootstrap.h"
 
+#include "stream_session_start.h"
+
 namespace stackchan::notifications {
 
 std::optional<StreamProvision> fetchAndProvisionDeviceStream(
@@ -28,6 +30,19 @@ std::optional<StreamProvision> fetchAndProvisionDeviceStream(
     provisioned.lease = *lease;
     provisioned.profile = *profile;
     return provisionDeviceStream(provisioned);
+}
+
+bool fetchAndArmDeviceStream(PolicyLeaseHttpClient& http, DeviceStreamTlsClient& client,
+                             const StreamProvisionRequest& request)
+{
+    if (client.started()) {
+        return false;
+    }
+    const auto provision = fetchAndProvisionDeviceStream(http, request);
+    if (!provision) {
+        return false;
+    }
+    return armProvisionedDeviceStream(client, *provision);
 }
 
 }  // namespace stackchan::notifications
