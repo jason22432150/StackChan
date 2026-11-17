@@ -46,6 +46,7 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/stream_provision.cpp"
     "stackchan/notifications/stream_session_start.cpp"
     "stackchan/notifications/device_loopback_handshake.cpp"
+    "stackchan/notifications/fail_closed_budget.cpp"
     "stackchan/notifications/link_anchor.cpp"
 )
 list(APPEND STACK_CHAN_SOURCES ${STACK_CHAN_NOTIFICATION_SOURCES})

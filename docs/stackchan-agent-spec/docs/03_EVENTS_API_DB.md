@@ -61,7 +61,7 @@ CoreS3 的 `parsePolicyLeaseJson` 接受上述 Policy JSON（固定欄位、可�
 
 Coordinator loopback 整合：`serve_device_policy` 取得 Policy 後，以 `create_mvp_notification_dispatcher`（MVP capacity／heartbeat）搭配 `serve_device_stream`，用租約 `version` 升級 WebSocket 並收到 heartbeat／intent；錯版號拒絕。裝置軟路徑 `completeDeviceLoopbackHandshake` 消費同一 Policy 快照並 `bindVerified`；pytest `test_device_loopback_handshake` 以裝置 StreamProvision 標頭對 live loopback TLS 完成握手。實機燒錄路徑與 R-006 仍待驗證。
 
-P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `CORE_S3_MVP_RUNTIME_LIMITS` 對齊（capacity 4、heartbeat 4s、stability 5s、frame age 5s、frame 1024 bytes、network 10s；Coordinator heartbeat_interval 1s、pong_timeout 2s）。超出硬上限的設定 Fail-Closed。實機失聯撤銷時間仍待 R-006。
+P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `CORE_S3_MVP_RUNTIME_LIMITS` 對齊（capacity 4、heartbeat 4s、stability 5s、frame age 5s、frame 1024 bytes、network 10s；Coordinator heartbeat_interval 1s、pong_timeout 2s）。超出硬上限的設定 Fail-Closed。R-006 軟路徑預算 4185 ms 已與 firmware／Coordinator 常數對齊；實機失聯撤銷時間仍待燒錄量測。
 
 CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket，固定連線到設定主機的 `/v1/device-stream`。它使用明確提供的 Coordinator CA 並保留主機名稱檢查，僅接受 HTTP 101，遇到 HTTP 轉址會關閉連線。呼叫端須在單一工作任務呼叫 `start`、`poll`、`takeNext`、`stop`，並供應已同步的時鐘、已驗證的政策快照及封包上限。單一 WebSocket 文字框可分多次 socket read 收取，超過上限或遇到 WebSocket 層分片會撤銷 session。斷線與心跳逾時同樣停權。Windows 測試使用 transport 替身，裝置憑證握手與到 Coordinator 的端到端網路路徑仍待實機驗證。
 

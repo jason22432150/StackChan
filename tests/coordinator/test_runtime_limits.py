@@ -7,7 +7,9 @@ import pytest
 from stackchan.coordinator.dispatch import NotificationDispatcher
 from stackchan.coordinator.runtime_limits import (
     CORE_S3_MVP_RUNTIME_LIMITS,
+    P004_MAX_UI_UPDATE_GAP_MS,
     CoordinatorRuntimeLimits,
+    mvp_soft_worst_case_revoke_ms,
     validate_coordinator_runtime_limits,
 )
 from stackchan.contracts.authz import Principal, TokenDirectory
@@ -27,6 +29,13 @@ def test_mvp_limits_match_device_profile() -> None:
     assert limits.max_frame_bytes == 1024
     assert limits.heartbeat_interval_seconds < limits.heartbeat_timeout_seconds
     assert limits.pong_timeout_seconds < limits.heartbeat_timeout_seconds
+
+
+def test_r006_soft_worst_case_revoke_budget_matches_firmware() -> None:
+    """R-006 軟路徑：與 firmware kMvpSoftWorstCaseRevokeMs=4185 對齊。"""
+    assert P004_MAX_UI_UPDATE_GAP_MS == 185
+    assert mvp_soft_worst_case_revoke_ms() == 4185
+    assert mvp_soft_worst_case_revoke_ms(CORE_S3_MVP_RUNTIME_LIMITS) == 4000 + 185
 
 
 def test_invalid_limits_fail_closed() -> None:

@@ -43,7 +43,7 @@ P2-06 已落地 `NotificationPresenter`＋`LvglLockedUiPort`＋`makeHalLvglLockH
 
 P2-07 已落地 `PresentationReceiptTracker`＋`encodePresentationReceiptJson`：裝置端產生 accepted／started／completed／interrupted／cancelled／failed 收據；相同 receipt_id 轉移與 Coordinator 多次 ACK 冪等；compact JSON 對齊 `presentation-receipt.schema.json`（金樣契約測試）。`link_anchor` 保留編碼進入點且不啟動網路／UI。尚未由 Presenter 驅動或經 HTTP／stream 上報。
 
-P2-08 軟路徑已落地 `FailClosedGuard`：偵測 Controller Active／Recovering→Suspended（心跳逾時）或 transport 顯式斷線時，同步 `Presenter.interrupt`、可選 `interrupted` 收據與清屏；不觸及 Xiaozhi。host CTest 覆蓋 T-SEC-01 軟行為。CoreS3 實機 Gate G3 與 R-006 失聯上界仍未關閉。
+P2-08 軟路徑已落地 `FailClosedGuard`：偵測 Controller Active／Recovering→Suspended（心跳逾時）或 transport 顯式斷線時，同步 `Presenter.interrupt`、可選 `interrupted` 收據與清屏；不觸及 Xiaozhi。host CTest 覆蓋 T-SEC-01 軟行為。R-006 軟體預算見 `fail_closed_budget`（4185 ms）；CoreS3 實機 Gate G3 與 R-006 實機量測仍未關閉。
 
 ### Task／執行緒約束
 
@@ -68,7 +68,7 @@ P2-08 軟路徑已落地 `FailClosedGuard`：偵測 Controller Active／Recoveri
 
 納入轉換視窗時，最大持鎖為 117,429 µs。裝置回報內部 heap 低水位 5,424 bytes、PSRAM 低水位 7,555,464 bytes，task stack 低水位 1,592 bytes。擷取期間未記錄顯示鎖逾時。這組數據是單次工作負載的實測基準。
 
-P2-04 MVP 正式預設（`kCoreS3MvpRuntimeProfile`／Coordinator `CORE_S3_MVP_RUNTIME_LIMITS`）：佇列容量 4、心跳逾時 4,000 ms、穩定門檻 5,000 ms、封包年齡 5,000 ms、影格 1,024 bytes、網路逾時 10,000 ms。選定理由：容量等於硬上限且只存 delivery ID；心跳／穩定對齊 Coordinator；心跳逾時約為最差 UI 更新間隔（184 ms）的 21 倍。`sanitizeRuntimeProfile` 拒絕超出硬天花板的設定。R-006 實機最壞撤銷時間尚未量測，不得當作最終生產上界。
+P2-04 MVP 正式預設（`kCoreS3MvpRuntimeProfile`／Coordinator `CORE_S3_MVP_RUNTIME_LIMITS`）：佇列容量 4、心跳逾時 4,000 ms、穩定門檻 5,000 ms、封包年齡 5,000 ms、影格 1,024 bytes、網路逾時 10,000 ms。選定理由：容量等於硬上限且只存 delivery ID；心跳／穩定對齊 Coordinator；心跳逾時約為最差 UI 更新間隔（184 ms）的 21 倍。`sanitizeRuntimeProfile` 拒絕超出硬天花板的設定。R-006 軟路徑已寫入 `fail_closed_budget`：`kMvpSoftWorstCaseRevokeMs=4185`（heartbeat_timeout 4000＋P0-04 最大 UI 更新間隔 ceil(184,054 µs)=185）；host 驗證靜默失聯在預算內清屏。實機最壞撤銷時間尚未量測，4185 ms **不得**當作最終生產上界。
 
 ## 4. 狀態仲裁矩陣
 

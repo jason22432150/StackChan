@@ -21,7 +21,7 @@
 
 - Coordinator 身份無效／連線判定斷線／政策版本無法驗證／授權過期：**Agent 通知停用**，包含已顯示文字、通知音訊與 Notification Motion；Bridge 不得直連補救。
 - 裝置可以保留原廠 Xiaozhi 與不含 Agent 事件的 Mew 待機，以及獨立的服務故障狀態圖示。
-- 失聯偵測不可能物理上零延遲，必須設定 heartbeat／lease 上界，超時即停權；P0 測試量測可接受上界。短期解鎖不跨裝置、不在重連時自動繼承。
+- 失聯偵測不可能物理上零延遲，必須設定 heartbeat／lease 上界，超時即停權；P0 測試量測可接受上界。軟路徑（R-006）暫定 `kMvpSoftWorstCaseRevokeMs=4185`（心跳逾時 4s＋P0-04 UI gap 185 ms），僅供軟體驗收；實機量測前不得當作生產 SLA。短期解鎖不跨裝置、不在重連時自動繼承。
 - 重新連線需檢查 Coordinator 身份→政策版本→撤銷狀態→穩定門檻→智慧補送；任何一步失敗維持 SUSPENDED／ERROR。
 - 世代權杖在撤銷瞬間失效，非同步 UI、TTS、Servo 的提交點必須重新確認；已排隊的動畫不能在授權恢復前自行播放。
 
