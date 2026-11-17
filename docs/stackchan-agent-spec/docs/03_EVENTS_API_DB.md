@@ -63,6 +63,8 @@ Coordinator loopback 整合：`serve_device_policy` 取得 Policy 後，以 `cre
 
 CoreS3 的 policy GET 與 WebSocket 共用設定的 TLS 主機及連接埠。Coordinator 可將 `DevicePolicyLeaseService` 傳給 `serve_device_stream(..., policy_leases=...)`，於同一個 `127.0.0.1` TLS listener 同時提供兩條路徑。policy 仍只接受 HTTP/1.1 GET，並驗證裝置範圍及 `device:policy` 權限。WebSocket 按既有規則驗證 `device:stream` 與政策版號。未提供 policy service 時仍可分開開啟兩個 loopback listener。CoreS3 尚需經受控網路路徑驗收。
 
+本機可用 `stackchan coordinator serve-device` 啟動同埠驗收服務。需指定既有安全資料庫（`--security-db`）、TLS PEM 憑證及私鑰（`--cert`、`--key`）、連接埠（`--port`，0 由系統分配）與 `--generation`。以環境變數 `STACKCHAN_SECURITY_PEPPER` 傳入既有資料庫使用的 pepper（UTF-8），服務以唯讀模式開啟資料庫，並在標準輸出回報實際本機埠。此啟動入口使用 MVP 設定及初始空的通知佇列，可驗證 policy、升級與心跳。
+
 P2-04 MVP 容量／逾時：裝置 `kCoreS3MvpRuntimeProfile` 與 Coordinator `CORE_S3_MVP_RUNTIME_LIMITS` 對齊（capacity 4、heartbeat 4s、stability 5s、frame age 5s、frame 1024 bytes、network 10s；Coordinator heartbeat_interval 1s、pong_timeout 2s）。超出硬上限的設定 Fail-Closed。R-006 上界 4185 ms 已與 firmware／Coordinator 對齊；CoreS3 實測樣本 revoke_ms=4000（見 evidence/r006_device_revoke_measure.md）。
 
 P2-04 產品主迴圈：`NotificationProductLoop` 以單一 `tick` 組裝 FailClosedGuard＋佇列 takeNext＋Presenter；`notificationProductLoopPollClient` 僅在 `DeviceStreamTlsClient::started()` 時 poll（未佈建不開 TLS）。`CONFIG_STACKCHAN_AGENT_NOTIFICATIONS`（default n）於 `_stackchan_update_task` 在 LVGL lock 外呼叫 `tickNotificationProductRuntime`；預設韌體不啟用。實機 Coordinator 連線與 Avatar UI 仍待後續 Gate。

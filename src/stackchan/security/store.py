@@ -19,13 +19,23 @@ def _utc_now() -> str:
 class SecurityStore:
     """獨立安全資料庫（憑證僅存雜湊）。"""
 
-    def __init__(self, path: str | Path, *, hasher: TokenHasher) -> None:
+    def __init__(self, path: str | Path, *, hasher: TokenHasher, read_only: bool = False) -> None:
         self.path = Path(path)
         self._hasher = hasher
-        self._conn = sqlite3.connect(self.path, isolation_level=None)
+        location = f"{self.path.resolve().as_uri()}?mode=ro" if read_only else self.path
+        self._conn = sqlite3.connect(location, uri=read_only, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self.initialize_schema()
+        try:
+            self._conn.execute("PRAGMA foreign_keys = ON")
+            if read_only:
+                self._conn.execute(
+                    "SELECT 1 FROM subjects, authorization_grants, privacy_policies, device_policy_bindings LIMIT 0"
+                )
+            else:
+                self.initialize_schema()
+        except sqlite3.Error:
+            self._conn.close()
+            raise
 
     def close(self) -> None:
         self._conn.close()
