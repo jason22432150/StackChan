@@ -64,9 +64,6 @@ async def _http_get(
     ssl_context: ssl.SSLContext, port: int, path: str, token: str, *,
     duplicate_authorization: bool = False, method: str = "GET", protocol: str = "HTTP/1.1",
 ) -> tuple[int, dict]:
-    reader, writer = await asyncio.open_connection(
-        "127.0.0.1", port, ssl=ssl_context, server_hostname="127.0.0.1",
-    )
     authorization = f"Authorization: Bearer {token}\r\n"
     if duplicate_authorization:
         authorization *= 2
@@ -77,15 +74,29 @@ async def _http_get(
         "Connection: close\r\n"
         "\r\n"
     ).encode("ascii")
-    writer.write(request)
-    await writer.drain()
-    raw = await reader.read()
-    writer.close()
-    await writer.wait_closed()
-    header, _, body = raw.partition(b"\r\n\r\n")
-    status = int(header.split(b"\r\n", 1)[0].decode("ascii").split()[1])
-    assert f"Content-Length: {len(body)}".lower().encode() in header.lower().split(b"\r\n")
-    assert b"content-type: application/json" in header.lower().split(b"\r\n")
+    async with asyncio.timeout(10):
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", port, ssl=ssl_context, server_hostname="127.0.0.1", ssl_shutdown_timeout=2,
+        )
+        try:
+            writer.write(request)
+            await writer.drain()
+            raw = await reader.read()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    header, delimiter, body = raw.partition(b"\r\n\r\n")
+    assert delimiter == b"\r\n\r\n"
+    status_line, *header_lines = header.split(b"\r\n")
+    status = int(status_line.split()[1])
+    fields = [(name.lower(), value.strip(b" \t")) for name, value in (line.split(b":", 1) for line in header_lines)]
+    lengths = [value for name, value in fields if name == b"content-length"]
+    assert lengths == [str(len(body)).encode("ascii")]
+    assert (b"content-type", b"application/json") in fields
+    if status == 200:
+        assert status_line.startswith(b"HTTP/1.1 200 ")
+        assert all(name not in (b"transfer-encoding", b"location") for name, _ in fields)
+        assert len(raw) <= CORE_S3_MVP_RUNTIME_LIMITS.max_frame_bytes
     return status, json.loads(body.decode("utf-8")) if body else {}
 
 
