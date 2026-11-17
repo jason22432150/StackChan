@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 
 import pytest
 
-from firmware.verify_nvs_backup import DEFAULT_PARTITION_TABLE, main, verify_nvs_backups
+from firmware.verify_nvs_backup import (
+    DEFAULT_PARTITION_TABLE,
+    binary_nvs_partition_extent,
+    main,
+    verify_nvs_backups,
+)
 
 
 @pytest.fixture
@@ -69,3 +75,58 @@ def test_rejects_ambiguous_or_invalid_partition_tables(backups, tmp_path, row):
     table.write_text(row, encoding="utf-8")
     with pytest.raises(ValueError, match="partition|sector-aligned"):
         verify_nvs_backups(table, first, second)
+
+
+def _partition_record(name: bytes, offset: int, size: int, subtype: int = 2) -> bytes:
+    return struct.pack("<2sBBII16sI", b"\xaa\x50", 1, subtype, offset, size, name, 0)
+
+
+def _binary_table(*entries: bytes, size: int = 0xC00, checksummed: bool = True) -> bytes:
+    records = b"".join(entries)
+    if checksummed:
+        records += b"\xeb\xeb" + b"\xff" * 14 + hashlib.md5(records, usedforsecurity=False).digest()
+    return records.ljust(size, b"\xff")
+
+
+@pytest.mark.parametrize("size", [0xC00, 0x1000])
+def test_binary_table_selects_device_extent_before_reading_backups(backups, tmp_path, capsys, size):
+    first, second, contents = backups
+    table = tmp_path / "partition-table.bin"
+    table.write_bytes(_binary_table(_partition_record(b"nvs", 0xB000, len(contents)), size=size))
+    args = ["--binary-partition-table", str(table)]
+    assert main([*args, "--show-partition"]) == 0
+    assert capsys.readouterr().out.strip() == "NVS partition: offset=0xb000 size=0x4000"
+    assert main([*args, str(first), str(second)]) == 0
+    assert "offset=0xb000 size=0x4000" in capsys.readouterr().out
+
+
+def test_binary_table_rejects_corruption_even_if_entries_are_aligned(tmp_path):
+    table = tmp_path / "partition-table.bin"
+    data = bytearray(_binary_table(_partition_record(b"nvs", 0x9000, 0x4000)))
+    data[5] ^= 0x10  # Changes the NVS offset by an aligned sector.
+    table.write_bytes(data)
+    with pytest.raises(ValueError, match="MD5 does not match"):
+        binary_nvs_partition_extent(table)
+
+
+@pytest.mark.parametrize(
+    ("records", "checksummed", "message"),
+    [
+        ([(b"nvs", 0x9000, 0x4000, 2)], False, "no MD5"),
+        ([(b"nvs", 0x9000, 0x4000, 1)], True, "one nvs"),
+        ([(b"nvs", 0x9000, 0x4000, 2), (b"nvs", 0xD000, 0x4000, 2)], True, "one nvs"),
+        ([(b"nvs", 0x9000, 0x4000, 2), (b"other", 0xC000, 0x2000, 3)], True, "overlaps"),
+    ],
+)
+def test_binary_table_rejects_unsafe_partition_layout(tmp_path, records, checksummed, message):
+    table = tmp_path / "partition-table.bin"
+    table.write_bytes(_binary_table(*(_partition_record(*row) for row in records), checksummed=checksummed))
+    with pytest.raises(ValueError, match=message):
+        binary_nvs_partition_extent(table)
+
+
+def test_binary_table_rejects_short_capture(tmp_path):
+    table = tmp_path / "partition-table.bin"
+    table.write_bytes(_binary_table(_partition_record(b"nvs", 0x9000, 0x4000))[:-1])
+    with pytest.raises(ValueError, match="0xc00-byte"):
+        binary_nvs_partition_extent(table)
