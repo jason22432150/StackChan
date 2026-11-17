@@ -2,6 +2,7 @@
 #include <cstring>
 #include <esp_transport_ssl.h>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <stackchan/notifications/policy_lease.h>
 #include <stackchan/notifications/policy_lease_http_client.h>
@@ -114,6 +115,30 @@ int main()
     expect(written.find("Authorization: Bearer opaque\r\n") != std::string::npos, "bearer token sent");
     expect(std::string_view(lease->version.data()) == "v1", "version bound from body");
     expect(lease->expires_utc_ms == 1'794'916'800'000ULL, "expires_utc_ms from valid_until");
+
+    const auto length = std::to_string(body.size());
+    auto fetchWithHeaders = [&](std::string_view status, const std::string& headers) {
+        response = std::string(status) + "\r\n" + headers + "\r\n\r\n" + body;
+        return client.fetch(config, now_ms);
+    };
+    expect(fetchWithHeaders("HTTP/1.1 200 OK", "cOnTeNt-LeNgTh:\t" + length + " \t").has_value(),
+           "mixed-case field name and HTTP optional whitespace are accepted");
+    expect(!fetchWithHeaders("HTTP/1.1 200OK", "Content-Length: " + length),
+           "malformed status line is rejected");
+    expect(!fetchWithHeaders("HTTP/1.1 200 OK", "Content-Type: application/json"),
+           "missing length is rejected");
+    for (const auto& headers : {
+             "Content-Length: " + length + "\r\ncOnTeNt-LeNgTh: " + length,
+             "Content-Length: " + length + "\r\nContent-Length: 0",
+             "Content-Length: " + length + "\r\ntRaNsFeR-EnCoDiNg: chunked",
+             "Content-Length: " + length + "\r\n transfer-encoding: chunked",
+             "Content-Length: " + length + "\r\nTransfer-Encoding : chunked",
+             "Content-Length: " + length + "\r\nX-Test: value\nTransfer-Encoding: chunked",
+             "Content-Length: " + std::to_string(body.size() + 1),
+             "Content-Length: " + std::to_string(std::numeric_limits<std::size_t>::max()) + length,
+         }) {
+        expect(!fetchWithHeaders("HTTP/1.1 200 OK", headers), "invalid response framing is rejected");
+    }
 
     std::string policy_version;
     std::uint64_t expires = 0;

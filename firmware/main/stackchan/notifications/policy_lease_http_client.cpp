@@ -1,8 +1,8 @@
 #include "policy_lease_http_client.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
-#include <cstring>
 #include <esp_transport.h>
 #include <esp_transport_ssl.h>
 #include <limits>
@@ -30,87 +30,49 @@ bool validHost(std::string_view host)
            });
 }
 
-int parseStatus(std::string_view status_line)
+bool headerNameIs(std::string_view name, std::string_view lowercase_name)
 {
-    // HTTP/1.1 200 OK
-    if (status_line.size() < 12 || status_line.substr(0, 9) != "HTTP/1.1 ") {
-        return -1;
-    }
-    int status = 0;
-    for (char c : status_line.substr(9, 3)) {
-        if (c < '0' || c > '9') {
-            return -1;
-        }
-        status = status * 10 + (c - '0');
-    }
-    return status;
-}
-
-bool headerHasLocation(std::string_view headers)
-{
-    auto remaining = headers;
-    while (!remaining.empty()) {
-        const auto end = remaining.find("\r\n");
-        const auto line = end == std::string_view::npos ? remaining : remaining.substr(0, end);
-        if (line.size() >= 9) {
-            auto name = line.substr(0, 8);
-            if ((name[0] == 'L' || name[0] == 'l') && (name[1] == 'o' || name[1] == 'O') &&
-                (name[2] == 'c' || name[2] == 'C') && (name[3] == 'a' || name[3] == 'A') &&
-                (name[4] == 't' || name[4] == 'T') && (name[5] == 'i' || name[5] == 'I') &&
-                (name[6] == 'o' || name[6] == 'O') && (name[7] == 'n' || name[7] == 'N') &&
-                line[8] == ':') {
-                return true;
-            }
-        }
-        if (end == std::string_view::npos) {
-            break;
-        }
-        remaining.remove_prefix(end + 2);
-    }
-    return false;
+    return std::equal(name.begin(), name.end(), lowercase_name.begin(), lowercase_name.end(),
+                      [](unsigned char byte, char expected) { return std::tolower(byte) == expected; });
 }
 
 std::optional<std::size_t> contentLength(std::string_view headers)
 {
-    auto remaining = headers;
-    while (!remaining.empty()) {
-        const auto end = remaining.find("\r\n");
-        const auto line = end == std::string_view::npos ? remaining : remaining.substr(0, end);
-        constexpr std::string_view key = "content-length:";
-        if (line.size() >= key.size()) {
-            bool match = true;
-            for (std::size_t i = 0; i < key.size(); ++i) {
-                const auto expected = key[i];
-                const auto actual = static_cast<char>(std::tolower(static_cast<unsigned char>(line[i])));
-                if (actual != expected) {
-                    match = false;
-                    break;
-                }
+    std::optional<std::size_t> length;
+    while (!headers.empty()) {
+        const auto end = headers.find("\r\n");
+        const auto line = headers.substr(0, end);
+        const auto colon = line.find(':');
+        const auto name = line.substr(0, colon);
+        constexpr std::string_view token_chars =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&'*+-.^`_|~";
+        if (line.find_first_of("\r\n") != std::string_view::npos ||
+            colon == std::string_view::npos || name.empty() ||
+            name.find_first_not_of(token_chars) != std::string_view::npos ||
+            headerNameIs(name, "location") || headerNameIs(name, "transfer-encoding")) {
+            return std::nullopt;
+        }
+        if (headerNameIs(name, "content-length")) {
+            const auto field = line.substr(colon + 1);
+            const auto first = field.find_first_not_of(" \t");
+            if (length || first == std::string_view::npos) {
+                return std::nullopt;
             }
-            if (match) {
-                auto value = line.substr(key.size());
-                while (!value.empty() && value.front() == ' ') {
-                    value.remove_prefix(1);
-                }
-                if (value.empty()) {
-                    return std::nullopt;
-                }
-                std::size_t length = 0;
-                for (char c : value) {
-                    if (c < '0' || c > '9') {
-                        return std::nullopt;
-                    }
-                    length = length * 10 + static_cast<std::size_t>(c - '0');
-                }
-                return length;
+            const auto last = field.find_last_not_of(" \t");
+            std::size_t parsed = 0;
+            const auto end_of_value = field.data() + last + 1;
+            const auto result = std::from_chars(field.data() + first, end_of_value, parsed);
+            if (result.ec != std::errc{} || result.ptr != end_of_value) {
+                return std::nullopt;
             }
+            length = parsed;
         }
         if (end == std::string_view::npos) {
             break;
         }
-        remaining.remove_prefix(end + 2);
+        headers.remove_prefix(end + 2);
     }
-    return std::nullopt;
+    return length;
 }
 }  // namespace
 
@@ -186,13 +148,13 @@ std::optional<PolicyLeaseBinding> PolicyLeaseHttpClient::fetch(const Config& con
     }
     const auto headers = response.substr(0, header_end);
     const auto status_end = headers.find("\r\n");
-    const auto status_line = status_end == std::string_view::npos ? headers : headers.substr(0, status_end);
-    const auto status = parseStatus(status_line);
-    if (status != 200 || headerHasLocation(headers)) {
+    const auto status_line = headers.substr(0, status_end);
+    if (status_end == std::string_view::npos || !status_line.starts_with("HTTP/1.1 200 ") ||
+        status_line.find_first_of("\r\n") != std::string_view::npos) {
         return std::nullopt;
     }
     const auto body = response.substr(header_end + 4);
-    const auto length = contentLength(headers);
+    const auto length = contentLength(headers.substr(status_end + 2));
     if (!length || *length != body.size() || *length > config.max_response_bytes) {
         return std::nullopt;
     }
