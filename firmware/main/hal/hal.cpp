@@ -7,9 +7,50 @@
 #include <memory>
 #include <mooncake_log.h>
 #include <nvs_flash.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <esp_timer.h>
 
 static std::unique_ptr<Hal> _hal_instance;
 static const std::string_view _tag = "HAL";
+
+#if CONFIG_STACKCHAN_R006_REVOKE_PROBE
+#include <stackchan/notifications/fail_closed_revoke_probe.h>
+#include <stackchan/notifications/notification_lvgl_hooks.h>
+
+namespace {
+struct R006ProbeUi final : stackchan::notifications::NotificationUiPort {
+    bool show(stackchan::notifications::NoticeKind, std::string_view) override { return true; }
+    void clear() override {}
+};
+
+/** 獨立 task：物件放靜態區，避免 task stack 溢位。 */
+void r006ProbeTask(void*)
+{
+    using stackchan::notifications::FailClosedRevokeProbe;
+    using stackchan::notifications::kCoreS3MvpRuntimeProfile;
+    using stackchan::notifications::kMvpSoftWorstCaseRevokeMs;
+    using stackchan::notifications::makeHalLvglLockHooks;
+
+    static R006ProbeUi ui;
+    static FailClosedRevokeProbe probe{ui, makeHalLvglLockHooks(), kCoreS3MvpRuntimeProfile.controller,
+                                       kMvpSoftWorstCaseRevokeMs};
+    mclog::tagInfo(_tag, "R006_PROBE start");
+    while (!probe.done()) {
+        const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
+        if (probe.poll(now_ms) && probe.sample().has_value()) {
+            const auto& sample = *probe.sample();
+            mclog::tagInfo(_tag,
+                           "R006_MEASURE revoke_ms={} budget_ms={} interrupted={} within_budget={}",
+                           sample.revoke_ms, sample.budget_ms, sample.interrupted, sample.within_budget);
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    vTaskDelete(nullptr);
+}
+}  // namespace
+#endif
 
 Hal& GetHAL()
 {
@@ -40,13 +81,16 @@ void Hal::init()
     imu_init();
     servo_init();
     lvgl_init();
+
+#if CONFIG_STACKCHAN_R006_REVOKE_PROBE
+    // R-006 診斷：Hal init 後立即單次量測，不改 Xiaozhi 啟動路徑。
+    xTaskCreatePinnedToCore(r006ProbeTask, "r006probe", 8192, nullptr, 2, nullptr, 1);
+#endif
 }
 
 /* -------------------------------------------------------------------------- */
 /*                                   System                                   */
 /* -------------------------------------------------------------------------- */
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <system_info.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
@@ -220,35 +264,35 @@ static void _stackchan_update_task(void* param)
 #endif
         tools::update_reminders();
 
+        {
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-        // Declare before the lock so reporting runs after unlock, including on continue.
-        LockSample lock_sample{baseline};
+            // Declare before the lock so reporting runs after unlock, including on continue.
+            LockSample lock_sample{baseline};
 #endif
-        LvglLockGuard lock;
+            LvglLockGuard lock;
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
-        lock_sample.acquired_us = esp_timer_get_time();
+            lock_sample.acquired_us = esp_timer_get_time();
 #endif
 
-        if (!hal_bridge::is_xiaozhi_idle()) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+            if (!hal_bridge::is_xiaozhi_idle()) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+
+            GetStackChan().update();
+
+            if (hal_bridge::is_xiaozhi_ready()) {
+                if (!is_setup_done) {
+                    // Setup when xiaozhi ready
+                    GetHAL().startSntp();
+                    view::create_home_indicator([]() { GetHAL().requestWarmReboot(0); }, 0x81DBBD, 0x134233);
+                    view::create_status_bar(0x81DBBD, 0x134233);
+                    is_setup_done = true;
+                }
+
+            view::update_home_indicator();
+            view::update_status_bar();
+            }
         }
-
-        GetStackChan().update();
-
-        if (!hal_bridge::is_xiaozhi_ready()) {
-            continue;
-        }
-
-        if (!is_setup_done) {
-            // Setup when xiaozhi ready
-            GetHAL().startSntp();
-            view::create_home_indicator([]() { GetHAL().requestWarmReboot(0); }, 0x81DBBD, 0x134233);
-            view::create_status_bar(0x81DBBD, 0x134233);
-            is_setup_done = true;
-        }
-
-        view::update_home_indicator();
-        view::update_status_bar();
     }
 }
 

@@ -11,7 +11,7 @@ P0＝若未驗證不得進入韌體實作；P1＝MVP Gate；P2＝擴充階段。
 | R-003 | P0 | Xiaozhi `is_idle` 不是 Audio lease | `SetStatus` 設定 idle flag | 明確事件／資源仲裁證據及實機交接 |
 | R-004 | P0 | LVGL 更新任務持鎖延遲 | 上游 `_stackchan_update_task` 鎖內非 idle 延遲 | 量測 UI Lock、通知清除上界、避免死鎖 |
 | R-005 | P0 | Servo `ModifyLock` 只是 bool | `Motion::setModifyLock()` 實作 | ResourceArbiter＋Servo 安全限制／IMU 衝突測試 |
-| R-006 | P0 | Fail-Closed 失聯判定上界未設定 | 軟路徑預算已設計：`kMvpSoftWorstCaseRevokeMs=4185`（heartbeat 4000＋P0-04 UI gap 185）；host CTest／pytest 對齊；**實機未量測** | 燒錄後實測最壞撤銷時間，方可關閉本風險 |
+| R-006 | P0｜已關閉 | Fail-Closed 失聯判定上界 | 軟體上界 `kMvpSoftWorstCaseRevokeMs=4185`；CoreS3 實測 `revoke_ms=4000`（`within_budget=true`）；`docs/evidence/r006_device_revoke_measure.md`＋序列金樣 | 上界已設定並經燒錄樣本驗證；後續可在 update task 負載下複測 |
 | R-007 | P0 | Agent 原生 Hook／Cursor 事件能力差異 | 尚未逐版本驗證 | 官方介面／實測樣本／可信等級矩陣 |
 | R-008 | P1 | CoreS3 `ShowNotification()` 空實作 | 上游已讀到空函式 | 受控 Presenter＋ACK／清屏測試 |
 | R-009 | P1 | SD／PSRAM 限額與大量 Mew 動畫 | 部分上游圖片快取邏輯 | 素材負載基準、壞檔降級測試 |

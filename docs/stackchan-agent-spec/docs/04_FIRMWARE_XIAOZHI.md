@@ -68,7 +68,7 @@ P2-08 軟路徑已落地 `FailClosedGuard`：偵測 Controller Active／Recoveri
 
 納入轉換視窗時，最大持鎖為 117,429 µs。裝置回報內部 heap 低水位 5,424 bytes、PSRAM 低水位 7,555,464 bytes，task stack 低水位 1,592 bytes。擷取期間未記錄顯示鎖逾時。這組數據是單次工作負載的實測基準。
 
-P2-04 MVP 正式預設（`kCoreS3MvpRuntimeProfile`／Coordinator `CORE_S3_MVP_RUNTIME_LIMITS`）：佇列容量 4、心跳逾時 4,000 ms、穩定門檻 5,000 ms、封包年齡 5,000 ms、影格 1,024 bytes、網路逾時 10,000 ms。選定理由：容量等於硬上限且只存 delivery ID；心跳／穩定對齊 Coordinator；心跳逾時約為最差 UI 更新間隔（184 ms）的 21 倍。`sanitizeRuntimeProfile` 拒絕超出硬天花板的設定。R-006 軟路徑已寫入 `fail_closed_budget`：`kMvpSoftWorstCaseRevokeMs=4185`（heartbeat_timeout 4000＋P0-04 最大 UI 更新間隔 ceil(184,054 µs)=185）；host 驗證靜默失聯在預算內清屏。實機最壞撤銷時間尚未量測，4185 ms **不得**當作最終生產上界。
+P2-04 MVP 正式預設（`kCoreS3MvpRuntimeProfile`／Coordinator `CORE_S3_MVP_RUNTIME_LIMITS`）：佇列容量 4、心跳逾時 4,000 ms、穩定門檻 5,000 ms、封包年齡 5,000 ms、影格 1,024 bytes、網路逾時 10,000 ms。選定理由：容量等於硬上限且只存 delivery ID；心跳／穩定對齊 Coordinator；心跳逾時約為最差 UI 更新間隔（184 ms）的 21 倍。`sanitizeRuntimeProfile` 拒絕超出硬天花板的設定。R-006：軟體上界 `kMvpSoftWorstCaseRevokeMs=4185`；CoreS3 診斷 probe 實測 `revoke_ms=4000`（`interrupted=true`／`within_budget=true`，見 `docs/evidence/r006_device_revoke_measure.md`）。生產韌體預設關閉 `CONFIG_STACKCHAN_R006_REVOKE_PROBE`。
 
 ## 4. 狀態仲裁矩陣
 

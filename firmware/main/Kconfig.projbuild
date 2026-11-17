@@ -20,6 +20,14 @@ config STACKCHAN_RUNTIME_BASELINE
         Log five-second maxima for the update period and LVGL lock timing,
         plus ESP32 heap and task stack measurements. For bench builds only.
 
+config STACKCHAN_R006_REVOKE_PROBE
+    bool "One-shot Fail-Closed revoke latency probe (R-006)"
+    default n
+    help
+        After Xiaozhi setup, run a single FailClosedRevokeProbe in the StackChan
+        update task and log R006_MEASURE. Does not call Xiaozhi Audio/Servo.
+        Bench builds only; leave disabled for normal firmware.
+
 endmenu
 
 menu "Xiaozhi Assistant"

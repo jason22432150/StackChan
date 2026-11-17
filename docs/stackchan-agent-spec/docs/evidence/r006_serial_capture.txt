@@ -1,0 +1,2 @@
+# captured_at_utc=2026-11-17T03:04:12Z
+[1794884651358] [[32minfo[0m] [HAL] R006_MEASURE revoke_ms=4000 budget_ms=4185 interrupted=true within_budget=true

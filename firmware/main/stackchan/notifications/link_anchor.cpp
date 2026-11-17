@@ -5,6 +5,7 @@
 #include "device_loopback_handshake.h"
 #include "fail_closed_budget.h"
 #include "fail_closed_guard.h"
+#include "fail_closed_revoke_probe.h"
 #include "notification_audio_policy.h"
 #include "notification_lvgl_hooks.h"
 #include "notification_presenter.h"
@@ -22,6 +23,7 @@ using stackchan::notifications::completeDeviceLoopbackHandshake;
 using stackchan::notifications::deviceLoopbackHandshakeLinked;
 using stackchan::notifications::encodePresentationReceiptJson;
 using stackchan::notifications::failClosedGuardPollProbe;
+using stackchan::notifications::failClosedRevokeProbeLinked;
 using stackchan::notifications::mvpSoftWorstCaseRevokeMs;
 using stackchan::notifications::fetchAndProvisionDeviceStream;
 using stackchan::notifications::makeHalLvglLockHooks;
@@ -46,6 +48,7 @@ const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&completeDeviceLoopbackHandshake),
     reinterpret_cast<RetainFn>(&deviceLoopbackHandshakeLinked),
     reinterpret_cast<RetainFn>(&mvpSoftWorstCaseRevokeMs),
+    reinterpret_cast<RetainFn>(&failClosedRevokeProbeLinked),
 };
 
 }  // namespace

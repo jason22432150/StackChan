@@ -80,6 +80,21 @@ target_include_directories(fail_closed_budget_test PRIVATE ../main)
 target_compile_features(fail_closed_budget_test PRIVATE cxx_std_17)
 add_test(NAME fail_closed_budget_test COMMAND $<TARGET_FILE:fail_closed_budget_test>)
 
+add_executable(fail_closed_revoke_probe_test
+    fail_closed_revoke_probe_test.cpp
+    ../main/stackchan/notifications/fail_closed_revoke_probe.cpp
+    ../main/stackchan/notifications/fail_closed_budget.cpp
+    ../main/stackchan/notifications/fail_closed_guard.cpp
+    ../main/stackchan/notifications/notification_presenter.cpp
+    ../main/stackchan/notifications/resource_arbiter.cpp
+    ../main/stackchan/notifications/notification_controller.cpp
+    ../main/stackchan/notifications/presentation_receipt.cpp
+    ../main/stackchan/notifications/runtime_limits.cpp
+)
+target_include_directories(fail_closed_revoke_probe_test PRIVATE ../main)
+target_compile_features(fail_closed_revoke_probe_test PRIVATE cxx_std_17)
+add_test(NAME fail_closed_revoke_probe_test COMMAND $<TARGET_FILE:fail_closed_revoke_probe_test>)
+
 add_executable(notification_audio_policy_test
     notification_audio_policy_test.cpp
     ../main/stackchan/notifications/notification_audio_policy.cpp
