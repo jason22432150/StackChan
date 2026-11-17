@@ -48,6 +48,9 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/device_loopback_handshake.cpp"
     "stackchan/notifications/fail_closed_budget.cpp"
     "stackchan/notifications/fail_closed_revoke_probe.cpp"
+    "stackchan/notifications/notification_product_loop.cpp"
+    "stackchan/notifications/notification_product_loop_poll.cpp"
+    "stackchan/notifications/notification_product_runtime.cpp"
     "stackchan/notifications/link_anchor.cpp"
 )
 list(APPEND STACK_CHAN_SOURCES ${STACK_CHAN_NOTIFICATION_SOURCES})

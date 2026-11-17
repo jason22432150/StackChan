@@ -33,6 +33,12 @@ public:
     void stop();
     std::optional<NotificationController::PendingDelivery> takeNext();
 
+    /** 產品主迴圈／FailClosed 共用同一 controller；未 start 時仍可查詢狀態。 */
+    NotificationController& controller() { return _controller; }
+    const NotificationController& controller() const { return _controller; }
+    NotificationController::SessionId session() const { return _session; }
+    bool started() const { return _socket != nullptr; }
+
 private:
     NotificationController _controller;
     DeviceStreamIngress _ingress;

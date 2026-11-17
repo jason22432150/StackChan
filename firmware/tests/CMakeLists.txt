@@ -95,6 +95,20 @@ target_include_directories(fail_closed_revoke_probe_test PRIVATE ../main)
 target_compile_features(fail_closed_revoke_probe_test PRIVATE cxx_std_17)
 add_test(NAME fail_closed_revoke_probe_test COMMAND $<TARGET_FILE:fail_closed_revoke_probe_test>)
 
+add_executable(notification_product_loop_test
+    notification_product_loop_test.cpp
+    ../main/stackchan/notifications/notification_product_loop.cpp
+    ../main/stackchan/notifications/fail_closed_guard.cpp
+    ../main/stackchan/notifications/notification_presenter.cpp
+    ../main/stackchan/notifications/resource_arbiter.cpp
+    ../main/stackchan/notifications/notification_controller.cpp
+    ../main/stackchan/notifications/presentation_receipt.cpp
+    ../main/stackchan/notifications/device_stream_ingress.cpp
+)
+target_include_directories(notification_product_loop_test PRIVATE ../main)
+target_compile_features(notification_product_loop_test PRIVATE cxx_std_17)
+add_test(NAME notification_product_loop_test COMMAND $<TARGET_FILE:notification_product_loop_test>)
+
 add_executable(notification_audio_policy_test
     notification_audio_policy_test.cpp
     ../main/stackchan/notifications/notification_audio_policy.cpp
@@ -215,4 +229,22 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(device_loopback_handshake_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(device_loopback_handshake_test PRIVATE cxx_std_17)
     add_test(NAME device_loopback_handshake_test COMMAND $<TARGET_FILE:device_loopback_handshake_test>)
+
+    add_executable(notification_product_loop_poll_test
+        notification_product_loop_poll_test.cpp
+        ../main/stackchan/notifications/notification_product_loop.cpp
+        ../main/stackchan/notifications/notification_product_loop_poll.cpp
+        ../main/stackchan/notifications/fail_closed_guard.cpp
+        ../main/stackchan/notifications/notification_presenter.cpp
+        ../main/stackchan/notifications/resource_arbiter.cpp
+        ../main/stackchan/notifications/notification_controller.cpp
+        ../main/stackchan/notifications/presentation_receipt.cpp
+        ../main/stackchan/notifications/runtime_limits.cpp
+        ../main/stackchan/notifications/device_stream_tls_client.cpp
+        ../main/stackchan/notifications/device_stream_json.cpp
+        ../main/stackchan/notifications/device_stream_ingress.cpp
+    )
+    target_include_directories(notification_product_loop_poll_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(notification_product_loop_poll_test PRIVATE cxx_std_20)
+    add_test(NAME notification_product_loop_poll_test COMMAND $<TARGET_FILE:notification_product_loop_poll_test>)
 endif()

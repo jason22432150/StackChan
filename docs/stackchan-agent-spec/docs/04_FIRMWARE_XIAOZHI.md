@@ -70,6 +70,8 @@ P2-08 軟路徑已落地 `FailClosedGuard`：偵測 Controller Active／Recoveri
 
 P2-04 MVP 正式預設（`kCoreS3MvpRuntimeProfile`／Coordinator `CORE_S3_MVP_RUNTIME_LIMITS`）：佇列容量 4、心跳逾時 4,000 ms、穩定門檻 5,000 ms、封包年齡 5,000 ms、影格 1,024 bytes、網路逾時 10,000 ms。選定理由：容量等於硬上限且只存 delivery ID；心跳／穩定對齊 Coordinator；心跳逾時約為最差 UI 更新間隔（184 ms）的 21 倍。`sanitizeRuntimeProfile` 拒絕超出硬天花板的設定。R-006：軟體上界 `kMvpSoftWorstCaseRevokeMs=4185`；CoreS3 診斷 probe 實測 `revoke_ms=4000`（`interrupted=true`／`within_budget=true`，見 `docs/evidence/r006_device_revoke_measure.md`）。生產韌體預設關閉 `CONFIG_STACKCHAN_R006_REVOKE_PROBE`。
 
+P2-04 產品路徑主迴圈：`NotificationProductLoop`（FailClosed→takeNext→present）＋`NotificationProductRuntime`（Null UI、不自動 start TLS）。掛點：`CONFIG_STACKCHAN_AGENT_NOTIFICATIONS`（default n）於 `_stackchan_update_task` 在 LVGL lock **外**呼叫 `tickNotificationProductRuntime`（含 Xiaozhi Busy／Idle 轉發）。host CTest `notification_product_loop_test`／`notification_product_loop_poll_test` 覆蓋 Idle／Present／Fail-Closed／Busy 拒呈／未 start TLS。`idf.py build`：`notificationProductLoopLinked` live；`stack-chan.bin` 0x39ec70、partition 剩 27%、SHA256 78E1899F…D069F20D。未開啟 Kconfig 時執行期零開銷；開啟時仍須顯式 provision 才會連 Coordinator。Avatar／`ShowNotification` 實機畫面屬 P2-08，本項不勾完成。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。

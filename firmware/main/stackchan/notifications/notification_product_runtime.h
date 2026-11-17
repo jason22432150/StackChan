@@ -1,0 +1,20 @@
+#pragma once
+
+#include <cstdint>
+
+namespace stackchan::notifications {
+
+/**
+ * P2-04 產品路徑常駐殼層（僅在 CONFIG_STACKCHAN_AGENT_NOTIFICATIONS 時由 Hal 編譯呼叫）。
+ *
+ * - 預設不開啟 TLS／WebSocket（無憑證絕不 connect）
+ * - tick 必須在 LVGL lock 外呼叫
+ * - Null UI：不掛 Avatar（P2-08）；仍經 LvglLockedUiPort 守鎖紀律
+ * - 不呼叫 Xiaozhi Audio／Servo
+ */
+void initNotificationProductRuntime();
+
+/** 每輪 update task：可選轉發 Xiaozhi Busy／Idle，再 poll stream（若已 start）或 Idle。 */
+void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, bool xiaozhi_busy);
+
+}  // namespace stackchan::notifications

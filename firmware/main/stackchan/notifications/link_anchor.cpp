@@ -9,6 +9,7 @@
 #include "notification_audio_policy.h"
 #include "notification_lvgl_hooks.h"
 #include "notification_presenter.h"
+#include "notification_product_loop.h"
 #include "policy_lease.h"
 #include "presentation_receipt.h"
 #include "resource_arbiter.h"
@@ -29,6 +30,7 @@ using stackchan::notifications::fetchAndProvisionDeviceStream;
 using stackchan::notifications::makeHalLvglLockHooks;
 using stackchan::notifications::mvpAgentAudioIsA0;
 using stackchan::notifications::notificationPresenterMayPresent;
+using stackchan::notifications::notificationProductLoopLinked;
 using stackchan::notifications::parsePolicyLeaseJson;
 using stackchan::notifications::resourceArbiterCommitGate;
 using stackchan::notifications::sanitizeRuntimeProfile;
@@ -49,6 +51,7 @@ const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&deviceLoopbackHandshakeLinked),
     reinterpret_cast<RetainFn>(&mvpSoftWorstCaseRevokeMs),
     reinterpret_cast<RetainFn>(&failClosedRevokeProbeLinked),
+    reinterpret_cast<RetainFn>(&notificationProductLoopLinked),
 };
 
 }  // namespace
