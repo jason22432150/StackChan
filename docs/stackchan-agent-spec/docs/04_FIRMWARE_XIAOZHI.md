@@ -96,6 +96,16 @@ idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconf
 
 此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，憑證載入會 Fail-Closed。這組映像驗證編譯、連結與分割區容量。正向連線驗收仍需另行確認 NVS 加密與佈建方案。
 
+要驗證加密 NVS 的完整編譯與連結，可在同一 ESP-IDF 環境用第三份 defaults 建置至另一個目錄。此設定將 ESP32-S3 的 HMAC provider 與通知路徑連結至同一映像。金鑰 ID `0` 是建置測試輸入，實機的金鑰槽、既有 NVS 資料及回復方案須另行確認。
+
+```powershell
+$buildDir = Join-Path $PWD 'build/p204-nvs-linkcheck'
+$sdkconfigPath = Join-Path $buildDir 'sdkconfig'
+idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.p204-notifications;sdkconfig.defaults.p204-nvs-linkcheck' build
+```
+
+此映像僅供離線檢查。即使分割表與未加密映像相同，啟用 NVS 加密也會改變預設 NVS 的資料解讀方式。硬體驗收須先確認備份可回復、指定的 eFuse 金鑰用途是 `HMAC_UP`，且預設 NVS 資料與該金鑰衍生的加密設定相容。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。
