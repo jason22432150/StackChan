@@ -5,6 +5,7 @@
  */
 #include "hal.h"
 #include <stackchan/stackchan.h>
+#include <stackchan/notifications/notification_utc_clock.h>
 #include <mooncake.h>
 #include <mooncake_log.h>
 #include <wifi_manager.h>
@@ -17,10 +18,19 @@
 #include <esp_sntp.h>
 #include <atomic>
 
+namespace {
+stackchan::notifications::NotificationUtcClock notification_clock;
+}
 static std::string _tag = "Network";
+
+std::uint64_t stackchan::notifications::notificationUtcMs() noexcept
+{
+    return notification_clock.utcMs();
+}
 
 static void time_sync_notification_cb(struct timeval*)
 {
+    notification_clock.markSynchronized();
     mclog::tagInfo(_tag, "SNTP time synchronized");
     GetHAL().syncSystemTimeToRtc();
 }

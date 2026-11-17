@@ -6,6 +6,7 @@
 #include "notification_lvgl_hooks.h"
 #include "notification_presenter.h"
 #include "notification_product_loop.h"
+#include "notification_utc_clock.h"
 #include "presentation_receipt.h"
 #include "resource_arbiter.h"
 #include "runtime_limits.h"
@@ -70,10 +71,14 @@ bool armNotificationProductRuntime(const StreamProvision& provision)
     return armProvisionedDeviceStream(rt.client, provision);
 }
 
-bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation, std::uint64_t utc_ms)
+bool fetchAndArmNotificationProductRuntime(std::uint64_t coordinator_generation)
 {
     auto& rt = runtime();
-    if (!rt.ready || rt.client.started() || utc_ms == 0) {
+    if (!rt.ready || rt.client.started()) {
+        return false;
+    }
+    const auto utc_ms = notificationUtcMs();
+    if (utc_ms == 0) {
         return false;
     }
     auto credentials = loadNotificationCredentials();

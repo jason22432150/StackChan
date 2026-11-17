@@ -16,7 +16,7 @@ static const std::string_view _tag = "HAL";
 
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
 #include <stackchan/notifications/notification_product_runtime.h>
-#include <ctime>
+#include <stackchan/notifications/notification_utc_clock.h>
 #endif
 
 #if CONFIG_STACKCHAN_R006_REVOKE_PROBE
@@ -276,11 +276,8 @@ static void _stackchan_update_task(void* param)
         // P2-04：網路／Fail-Closed tick 必須在 LVGL lock 外，避免持鎖等 socket。
         {
             const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
-            const auto wall = std::time(nullptr);
-            const auto utc_ms =
-                wall > 0 ? static_cast<std::uint64_t>(wall) * 1000ULL : 0ULL;
             stackchan::notifications::tickNotificationProductRuntime(
-                now_ms, utc_ms, !hal_bridge::is_xiaozhi_idle());
+                now_ms, stackchan::notifications::notificationUtcMs(), !hal_bridge::is_xiaozhi_idle());
         }
 #endif
 

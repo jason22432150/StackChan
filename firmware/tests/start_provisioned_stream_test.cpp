@@ -10,6 +10,7 @@
 #include <stackchan/notifications/notification_credentials.h>
 #include <stackchan/notifications/notification_lvgl_hooks.h>
 #include <stackchan/notifications/notification_product_runtime.h>
+#include <stackchan/notifications/notification_utc_clock.h>
 #include <stackchan/notifications/stream_bootstrap.h>
 #include <stackchan/notifications/stream_session_start.h>
 
@@ -19,6 +20,7 @@ LvglLockHooks makeHalLvglLockHooks() { return {}; }
 
 using stackchan::notifications::DeviceStreamTlsClient;
 using stackchan::notifications::NotificationCredentials;
+using stackchan::notifications::NotificationUtcClock;
 using stackchan::notifications::PolicyLeaseHttpClient;
 using stackchan::notifications::StreamProvisionRequest;
 using stackchan::notifications::armProvisionedDeviceStream;
@@ -41,6 +43,7 @@ int connect_result = 0;
 int http_status = 101;
 int connect_calls = 0;
 int credential_reads = 0;
+NotificationUtcClock notification_clock;
 std::optional<NotificationCredentials> stored_credentials;
 int close_calls = 0;
 int destroy_calls = 0;
@@ -67,6 +70,11 @@ std::uint64_t nowUtcMs()
         duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 }
 }  // namespace
+
+std::uint64_t stackchan::notifications::notificationUtcMs() noexcept
+{
+    return notification_clock.utcMs();
+}
 
 std::optional<NotificationCredentials> stackchan::notifications::loadNotificationCredentials()
 {
@@ -233,7 +241,7 @@ int main()
     using stackchan::notifications::isNotificationProductStreamArmed;
     const int calls_before_arm = connect_calls;
     expect(!armNotificationProductRuntime(*provision), "runtime rejects arm before init");
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, now_ms), "explicit fetch requires init");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "explicit fetch requires init");
     initNotificationProductRuntime();
     tickNotificationProductRuntime(0, now_ms, false);
     expect(connect_calls == calls_before_arm && !isNotificationProductStreamArmed(),
@@ -278,9 +286,16 @@ int main()
     tickNotificationProductRuntime(0, now_ms, false);
     expect(!isNotificationProductStreamArmed(), "transport failure releases the existing stream");
     const int calls_before_fetch = connect_calls;
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, 0), "missing UTC blocks bootstrap");
-    expect(credential_reads == 0 && connect_calls == calls_before_fetch, "missing UTC performs no I/O");
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, now_ms), "missing credentials block bootstrap");
+    expect(notification_clock.utcMs() == 0, "wall clock alone does not count as SNTP synchronization");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "unsynchronized clock blocks bootstrap");
+    expect(credential_reads == 0 && connect_calls == calls_before_fetch, "unsynchronized clock performs no I/O");
+    const auto utc_before_sync = nowUtcMs();
+    notification_clock.markSynchronized();
+    const auto synchronized_utc = notification_clock.utcMs();
+    const auto utc_after_sync = nowUtcMs();
+    expect(synchronized_utc >= utc_before_sync && synchronized_utc <= utc_after_sync,
+           "after synchronization the clock returns current UTC milliseconds");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "missing credentials block bootstrap");
     expect(credential_reads == 1 && connect_calls == calls_before_fetch && !isNotificationProductStreamArmed(),
            "missing credentials cause zero connections");
 
@@ -289,24 +304,24 @@ int main()
     };
     phase = Phase::Http;
     http_response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, now_ms), "policy denial blocks upgrade");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "policy denial blocks upgrade");
     expect(connect_calls == calls_before_fetch + 1 && phase == Phase::Http && !isNotificationProductStreamArmed(),
            "policy denial only attempts the policy connection");
 
     http_response = httpOk(R"({"policy_id":"desk","version":"v1","privacy_mode":"private","valid_until":"2099-01-01T00:00:00Z","revoked":true})");
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, now_ms), "revoked lease blocks upgrade");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "revoked lease blocks upgrade");
     expect(connect_calls == calls_before_fetch + 2 && phase == Phase::Http && !isNotificationProductStreamArmed(),
            "revoked lease only attempts the policy connection");
 
     http_response = httpOk(body);
     http_status = 401;
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, now_ms), "upgrade denial leaves stream idle");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "upgrade denial leaves stream idle");
     expect(connect_calls == calls_before_fetch + 4 && !isNotificationProductStreamArmed(),
            "upgrade denial closes the attempted product stream");
 
     phase = Phase::Http;
     http_status = 101;
-    expect(fetchAndArmNotificationProductRuntime(request.generation, now_ms), "valid credentials and policy arm the runtime");
+    expect(fetchAndArmNotificationProductRuntime(request.generation), "valid credentials and policy arm the runtime");
     expect(connect_calls == calls_before_fetch + 6 && isNotificationProductStreamArmed(),
            "successful bootstrap fetches policy and upgrades exactly once");
     expect(written.starts_with("GET /v1/devices/paired-device/policy HTTP/1.1\r\n") &&
@@ -319,7 +334,7 @@ int main()
            "stream upgrade uses the pairing and fetched policy version");
 
     const int reads_after_arm = credential_reads;
-    expect(!fetchAndArmNotificationProductRuntime(request.generation, now_ms), "already armed runtime refuses bootstrap");
+    expect(!fetchAndArmNotificationProductRuntime(request.generation), "already armed runtime refuses bootstrap");
     expect(credential_reads == reads_after_arm && connect_calls == calls_before_fetch + 6,
            "duplicate bootstrap reads no credentials and opens no connections");
     tickNotificationProductRuntime(0, now_ms, false);
