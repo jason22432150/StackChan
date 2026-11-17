@@ -74,6 +74,8 @@ P2-04 產品路徑主迴圈：`NotificationProductLoop`（FailClosed→takeNext�
 
 P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；runtime `armNotificationProductRuntime`／`isNotificationProductStreamArmed`（未 init／已 started／無效 provision Fail-Closed）。host `start_provisioned_stream_test` 覆蓋雙重 arm、fetchAndArm 101／401。`idf.py build`：`armProvisionedDeviceStream`／`fetchAndArmDeviceStream` live；`stack-chan.bin` 0x39ed40、partition 剩 27%、SHA256 D8D568EA…029BDCB4。未寫入 NVS 密鑰、未自動 fetch。Avatar／實機 Coordinator 仍缺——P2-04 不勾完成。
 
+`loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。現階段由呼叫端明確讀取，憑證寫入及產品啟動接線待後續驗收。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。

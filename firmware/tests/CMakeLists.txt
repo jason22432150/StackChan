@@ -4,6 +4,17 @@ project(stackchan_firmware_tests LANGUAGES CXX)
 
 enable_testing()
 
+foreach(target notification_credentials_test notification_credentials_unencrypted_test)
+    add_executable(${target}
+        notification_credentials_test.cpp
+        ../main/stackchan/notifications/notification_credentials.cpp
+    )
+    target_include_directories(${target} PRIVATE nvs_fakes ../main)
+    target_compile_features(${target} PRIVATE cxx_std_20)
+    add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
+endforeach()
+target_compile_definitions(notification_credentials_test PRIVATE CONFIG_NVS_ENCRYPTION=1)
+
 add_executable(motion_math_test
     motion_math_test.cpp
     ../main/stackchan/motion/motion_math.cpp
