@@ -1,4 +1,4 @@
-"""Loopback TLS transport for manually approved CoreS3 pairing."""
+"""TLS pairing with a separate loopback approval boundary for LAN devices."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ import re
 import secrets
 import ssl
 from asyncio import StreamReader, StreamWriter
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator, Awaitable
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from http import HTTPStatus
 
 from stackchan.contracts.authz import ApiGate, AuthorizationError
+from stackchan.coordinator.device_stream_server import validate_device_listener
 from stackchan.coordinator.policy_lease_server import _error_body, _http_response
 from stackchan.security.pairing import PairingError, PairingService
 
@@ -129,12 +131,70 @@ def serve_device_pairing(
     if tls.protocol != ssl.PROTOCOL_TLS_SERVER or tls.minimum_version < ssl.TLSVersion.TLSv1_2:
         raise ValueError("device pairing requires TLS 1.2 or newer")
     routes = _PairingRoutes(service, gate, device_policy)
+    return _pairing_listener(routes, tls, host="127.0.0.1", port=port)
+
+
+def validate_pairing_listener(host: str, device_ip: str | None, admin_port: int | None) -> None:
+    validate_device_listener(host, device_ip)
+    if host == "127.0.0.1":
+        if admin_port is not None:
+            raise ValueError("--admin-port requires a LAN pairing listener")
+    elif admin_port is None or not 0 <= admin_port <= 65535:
+        raise ValueError("LAN pairing requires --admin-port between 0 and 65535")
+
+
+@asynccontextmanager
+async def serve_lan_device_pairing(
+    service: PairingService, gate: ApiGate, tls: ssl.SSLContext, *, host: str, device_ip: str,
+    port: int, admin_port: int, device_policy: tuple[str, str],
+) -> AsyncIterator[tuple[asyncio.Server, asyncio.Server]]:
+    """Share RAM claims across device-only LAN and confirm-only loopback listeners."""
+    validate_pairing_listener(host, device_ip, admin_port)
+    if host == "127.0.0.1":
+        raise ValueError("LAN pairing requires a private LAN listener")
+    if tls.protocol != ssl.PROTOCOL_TLS_SERVER or tls.minimum_version < ssl.TLSVersion.TLSv1_2:
+        raise ValueError("device pairing requires TLS 1.2 or newer")
+    routes = _PairingRoutes(service, gate, device_policy)
+    async with AsyncExitStack() as stack:
+        device = await stack.enter_async_context(await _pairing_listener(
+            routes, tls, host=host, port=port, role="device", peer_ip=device_ip, start_serving=False,
+        ))
+        admin = await stack.enter_async_context(await _pairing_listener(
+            routes, tls, host="127.0.0.1", port=admin_port, role="admin", peer_ip="127.0.0.1", start_serving=False,
+        ))
+        await device.start_serving()
+        await admin.start_serving()
+        yield device, admin
+
+
+def _pairing_listener(
+    routes: _PairingRoutes, tls: ssl.SSLContext, *, host: str, port: int, role: str = "all",
+    peer_ip: str | None = None, start_serving: bool = True,
+) -> Awaitable[asyncio.Server]:
+    def forbidden() -> bytes:
+        return _http_response(
+            HTTPStatus.FORBIDDEN, _error_body("forbidden", "pairing endpoint refused"),
+            content_type="application/json", no_store=True,
+        )
 
     async def client_connected(reader: StreamReader, writer: StreamWriter) -> None:
         try:
             async with asyncio.timeout(5):
                 try:
-                    response = routes.dispatch(*await _read_request(reader))
+                    peer = writer.get_extra_info("peername")
+                    if peer_ip is not None and (not peer or peer[0] != peer_ip):
+                        response = forbidden()
+                    else:
+                        request = await _read_request(reader)
+                        match = _SESSION.fullmatch(request[1])
+                        is_confirm = match is not None and match.group(2) == "confirm"
+                        if role == "admin":
+                            allowed = is_confirm
+                        elif role == "device":
+                            allowed = request[1] == _START or (match is not None and match.group(2) == "complete")
+                        else:
+                            allowed = role == "all"
+                        response = routes.dispatch(*request) if allowed else forbidden()
                 except (ValueError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
                     response = _http_response(
                         HTTPStatus.BAD_REQUEST, _error_body("invalid_request", "malformed HTTP request"),
@@ -152,6 +212,6 @@ def serve_device_pairing(
                 pass
 
     return asyncio.start_server(
-        client_connected, host="127.0.0.1", port=port, ssl=tls,
+        client_connected, host=host, port=port, ssl=tls, start_serving=start_serving,
         limit=_MAX_REQUEST_BYTES, ssl_handshake_timeout=5, ssl_shutdown_timeout=2,
     )

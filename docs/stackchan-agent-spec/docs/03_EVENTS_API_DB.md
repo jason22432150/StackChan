@@ -107,9 +107,19 @@ CoreS3 的 `DeviceStreamTlsClient` 使用 ESP-IDF TLS transport 包裝 WebSocket
 stackchan coordinator serve-pairing --security-db security.sqlite --cert coordinator-cert.pem --key coordinator-key.pem --port 9443 --policy-id desk --policy-version v1
 ```
 
-`serve-pairing` 固定綁定 `127.0.0.1`，不接受 `--listen`／`--device-ip`；`--port 0` 可使用系統分配的埠，標準輸出會回報實際埠。與唯讀的 `serve-device` 分開，配對服務以 SQLite `mode=rw` 開啟既有資料庫，允許配對狀態、grant 與政策綁定寫入，但不建立檔案或初始化／遷移 schema。政策 ID 與版本皆須明確提供，領取時仍由既有交易驗證政策有效性；未知、撤銷或到期政策拒發並回復交易。啟動成功不代表指定政策已通過領取驗證。
+`serve-pairing` 預設綁定 `127.0.0.1`；未啟用下述 LAN 雙入口時，建立、確認及領取皆在同一個 loopback listener；`--port 0` 可使用系統分配的埠，標準輸出會回報實際埠。與唯讀的 `serve-device` 分開，配對服務以 SQLite `mode=rw` 開啟既有資料庫，允許配對狀態、grant 與政策綁定寫入，但不建立檔案或初始化／遷移 schema。政策 ID 與版本皆須明確提供，領取時仍由既有交易驗證政策有效性；未知、撤銷或到期政策拒發並回復交易。啟動成功不代表指定政策已通過領取驗證。
 
 2026-11-18 驗收：`test_pairing_cli.py` 的 17 項測試通過，其中實際子程序／loopback TLS 涵蓋待核准、錯誤管理員、拒絕、成功後政策綁定、重複領取拒絕、程序重啟後舊領取碼失效與新配對成功，以及不可用政策的交易回復。另驗證缺 pepper、必要參數缺漏、非法埠、空白政策、LAN 選項拒絕、缺少／空白資料庫與啟動錯誤遮蔽。全套 pytest 302/302；host CTest 31/31。未變更韌體、未開 LAN listener；CoreS3 不能直接連至本機 loopback，受來源限制的 LAN 配對及實機驗收仍待完成。
+
+經批准的 LAN 驗收可在 `serve-pairing` 明確指定 `--listen` 為主機 RFC 1918 IPv4、`--device-ip` 為唯一允許的 CoreS3 私有 IPv4，並以 `--admin-port` 指定另一個管理員 TLS 埠（可用 0 自動分配）。三項須搭配；拒絕萬用、公網、主機名稱、IPv6、相同主機／裝置 IP，以及缺少或非法管理埠。loopback 模式不接受 `--device-ip` 或 `--admin-port`。CLI 仍須使用既有 pepper、資料庫及明確政策 ID／版本。
+
+```powershell
+stackchan coordinator serve-pairing --security-db security.sqlite --cert coordinator-cert.pem --key coordinator-key.pem --port 9443 --policy-id desk --policy-version v1 --listen 192.168.1.10 --device-ip 192.168.1.20 --admin-port 9444
+```
+
+LAN 入口只接受指定 TCP peer 的建立與領取請求；即使帶有效管理員 token，確認路徑也回 403。管理入口固定綁定 `127.0.0.1`，只接受確認路徑，仍要求有效 `admin:pairing` 及正確確認碼，不能建立配對或領取 token。兩個入口共用同一份 RAM 領取碼雜湊與期限；拒絕／一次領取會更新共享狀態，重啟服務後舊領取碼失效。不信任 `X-Forwarded-For`；來源檢查在 TLS 握手後、HTTP 解析及授權前執行。TLS 憑證須同時適用於裝置連線使用的 LAN 主機名或 IP 與管理端使用的 `127.0.0.1`，且兩端都驗證 CA。標準輸出分別回報裝置與管理埠，不含 token、確認碼或領取碼。
+
+兩個 listener 共用生命週期，均先完成綁定才開始服務；任一綁定／啟動失敗或服務取消時會關閉已建立的 listener。2026-11-18 新增 20 項測試：LAN 綁定位址與 TCP peer 使用替身，實際 TLS socket 僅綁定 loopback，驗證跨入口成功、來源與路徑拒絕、偽造轉送標頭、人工拒絕、重啟、CLI 參數轉交及失敗／取消清理。配對 CLI 專項共 37/37；完整 pytest 322/322，host CTest 31/31。本輪未開真實 LAN listener、改動韌體、寫入裝置 NVS 或 eFuse。真實網卡綁定、CoreS3 HTTPS、實機 RAM 憑證與 Xiaozhi 共存仍未驗收。
 
 ## 7. TTL、資料保留、背壓
 

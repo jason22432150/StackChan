@@ -7,6 +7,7 @@ import asyncio
 import os
 import ssl
 import sys
+from contextlib import AsyncExitStack
 from pathlib import Path
 from sqlite3 import Error as DatabaseError
 from typing import Sequence
@@ -14,7 +15,7 @@ from typing import Sequence
 from stackchan.contracts.authz import ApiGate
 from stackchan.coordinator.device_stream_server import serve_device_stream, validate_device_listener
 from stackchan.coordinator.mvp_dispatcher import create_mvp_notification_dispatcher
-from stackchan.coordinator.pairing_server import serve_device_pairing
+from stackchan.coordinator.pairing_server import serve_device_pairing, serve_lan_device_pairing, validate_pairing_listener
 from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
 from stackchan.coordinator.runtime_limits import CORE_S3_MVP_RUNTIME_LIMITS
 from stackchan.security.auth_bridge import StoreBackedTokenDirectory
@@ -49,16 +50,27 @@ async def _serve(
 
 async def _serve_pairing(
     db: Path, pepper: bytes, tls: ssl.SSLContext, port: int, policy_id: str, policy_version: str,
+    host: str = "127.0.0.1", device_ip: str | None = None, admin_port: int | None = None,
 ) -> None:
     # Pairing writes grants, but must never create or migrate an operator's database.
     with SecurityStore(db, hasher=TokenHasher(pepper), existing_only=True) as store:
         gate = ApiGate(StoreBackedTokenDirectory(store))
-        async with await serve_device_pairing(
-            PairingService(store), gate, tls, port=port, device_policy=(policy_id, policy_version),
-        ) as server:
-            host, bound_port = server.sockets[0].getsockname()
-            print(f"Pairing ready on {host}:{bound_port} (TLS, manual approval required)", flush=True)
-            await server.serve_forever()
+        async with AsyncExitStack() as stack:
+            if host == "127.0.0.1":
+                server = await stack.enter_async_context(await serve_device_pairing(
+                    PairingService(store), gate, tls, port=port, device_policy=(policy_id, policy_version),
+                ))
+                servers = (server,)
+            else:
+                servers = await stack.enter_async_context(serve_lan_device_pairing(
+                    PairingService(store), gate, tls, host=host, device_ip=device_ip,
+                    port=port, admin_port=admin_port, device_policy=(policy_id, policy_version),
+                ))
+            for index, server in enumerate(servers):
+                address, bound_port = server.sockets[0].getsockname()
+                label = "Pairing" if index == 0 else "Pairing admin"
+                print(f"{label} ready on {address}:{bound_port} (TLS, manual approval required)", flush=True)
+            await asyncio.gather(*(server.serve_forever() for server in servers))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -73,6 +85,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         command.add_argument("--port", required=True, type=int, help="TLS port (0 selects a temporary port)")
     pairing.add_argument("--policy-id", required=True, help="policy ID to bind when issuing the device grant")
     pairing.add_argument("--policy-version", required=True, help="explicit policy version to bind")
+    pairing.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
+    pairing.add_argument("--device-ip", help="the only peer IPv4 allowed with LAN pairing")
+    pairing.add_argument("--admin-port", type=int, help="confirm-only loopback TLS port, required with LAN pairing")
     serve.add_argument("--generation", required=True, type=int, help="CoreS3 Coordinator generation")
     serve.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
     serve.add_argument("--device-ip", help="the only peer IPv4 allowed with a private LAN listener")
@@ -89,6 +104,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             serve.error(str(exc))
     elif not args.policy_id.strip() or not args.policy_version.strip():
         pairing.error("policy ID and version must not be blank")
+    else:
+        try:
+            validate_pairing_listener(args.listen, args.device_ip, args.admin_port)
+        except ValueError as exc:
+            pairing.error(str(exc))
     pepper = os.environ.get("STACKCHAN_SECURITY_PEPPER")
     if not pepper:
         command.error("set STACKCHAN_SECURITY_PEPPER to the existing store's pepper")
@@ -103,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "serve-pairing":
             asyncio.run(_serve_pairing(args.security_db, pepper.encode(), tls, args.port,
-                                       args.policy_id, args.policy_version))
+                                       args.policy_id, args.policy_version, args.listen, args.device_ip, args.admin_port))
         else:
             asyncio.run(_serve(args.security_db, pepper.encode(), tls, args.port, args.generation,
                                args.listen, args.device_ip))
