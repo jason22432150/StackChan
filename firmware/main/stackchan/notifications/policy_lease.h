@@ -23,7 +23,7 @@ struct PolicyLeaseBinding {
 std::optional<PolicyLeaseBinding> parsePolicyLeaseJson(
     std::string_view json, std::size_t max_bytes, NotificationController::Tick now_utc_ms);
 
-// Copies a verified lease into stream config fields. Refuses expired leases.
+// Copies a verified lease. Refuses expired leases or invalid fixed-size fields.
 bool bindPolicyLease(
     PolicyLeaseBinding& out, const PolicyLeaseBinding& lease, NotificationController::Tick now_utc_ms);
 

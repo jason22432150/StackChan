@@ -5,6 +5,7 @@
 #include <stackchan/notifications/policy_lease.h>
 
 using stackchan::notifications::PolicyLeaseBinding;
+using stackchan::notifications::applyPolicyLeaseToStreamFields;
 using stackchan::notifications::bindPolicyLease;
 using stackchan::notifications::parsePolicyLeaseJson;
 
@@ -46,6 +47,35 @@ int main()
     expect(std::strcmp(bound.version.data(), "v1") == 0 && bound.expires_utc_ms == lease->expires_utc_ms,
            "bind copies stream fields");
     expect(!bindPolicyLease(bound, *lease, lease->expires_utc_ms), "expired lease cannot rebind");
+
+    auto max_length = *lease;
+    max_length.policy_id.fill('p');
+    max_length.policy_id.back() = '\0';
+    max_length.version.fill('v');
+    max_length.version.back() = '\0';
+    std::string stream_version;
+    auto stream_expiry = lease->expires_utc_ms;
+    expect(applyPolicyLeaseToStreamFields(stream_version, stream_expiry, max_length, now_ms),
+           "maximum terminated identifiers bind");
+    const std::string expected_version(max_length.version.size() - 1, 'v');
+    expect(stream_version == expected_version, "maximum version copied in full");
+
+    auto bad_id = max_length;
+    bad_id.policy_id.back() = 'p';
+    auto bad_version = max_length;
+    bad_version.version.back() = 'v';
+    auto bad_privacy = *lease;
+    bad_privacy.privacy_mode.fill('x');
+    for (const auto& malformed : {bad_id, bad_version, bad_privacy}) {
+        expect(!bindPolicyLease(bound, malformed, now_ms), "unterminated field cannot bind");
+        expect(bound.version == lease->version && bound.policy_id == lease->policy_id &&
+                   bound.privacy_mode == lease->privacy_mode && bound.expires_utc_ms == lease->expires_utc_ms,
+               "failed binding leaves the output intact");
+        expect(!applyPolicyLeaseToStreamFields(stream_version, stream_expiry, malformed, now_ms),
+               "unterminated field cannot configure a stream");
+        expect(stream_version == expected_version && stream_expiry == lease->expires_utc_ms,
+               "failed stream configuration leaves the previous fields intact");
+    }
 
     const std::string with_millis =
         R"({"policy_id":"desk","version":"v1","privacy_mode":"strict","valid_until":"2026-11-17T12:00:00.500Z"})";

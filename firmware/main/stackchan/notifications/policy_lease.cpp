@@ -39,6 +39,16 @@ std::string_view stringValue(JsonVariantConst value)
     return text.isNull() ? std::string_view{} : std::string_view(text.c_str(), text.size());
 }
 
+template <std::size_t N>
+std::string_view leaseField(const std::array<char, N>& field)
+{
+    const auto terminator = std::find(field.begin(), field.end(), '\0');
+    if (terminator == field.end()) {
+        return {};
+    }
+    return {field.data(), static_cast<std::size_t>(terminator - field.begin())};
+}
+
 bool identifier(std::string_view value)
 {
     return !value.empty() && value.size() <= NotificationController::max_id_bytes &&
@@ -169,8 +179,8 @@ std::optional<PolicyLeaseBinding> parsePolicyLeaseJson(
 bool bindPolicyLease(PolicyLeaseBinding& out, const PolicyLeaseBinding& lease, Tick now_utc_ms)
 {
     if (now_utc_ms == 0 || lease.expires_utc_ms <= now_utc_ms ||
-        !identifier(lease.policy_id.data()) || !identifier(lease.version.data()) ||
-        !privacyMode(lease.privacy_mode.data())) {
+        !identifier(leaseField(lease.policy_id)) || !identifier(leaseField(lease.version)) ||
+        !privacyMode(leaseField(lease.privacy_mode))) {
         return false;
     }
     out = lease;
