@@ -1,8 +1,11 @@
 #pragma once
 
+#include "notification_credentials.h"
 #include "stream_provision.h"
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace stackchan::notifications {
 
@@ -33,8 +36,20 @@ enum class NotificationBootstrapResult {
     StreamUpgradeFailed,
 };
 
+struct NotificationPairingEndpoint {
+    std::string coordinator_host;
+    std::uint16_t port = 0;
+    std::string coordinator_ca_pem;
+};
+
+// The local pairing caller supplies the challenge and trusted endpoint. The
+// completion must arrive through the same authenticated Coordinator transport.
+bool beginNotificationProductPairing(std::string_view pairing_id, std::string_view challenge_expires_at,
+                                     NotificationPairingEndpoint endpoint);
+bool finishNotificationProductPairing(std::string_view pairing_id, std::string_view response);
+
 /**
- * Explicitly load credentials and fetch policy before arming the product stream.
+ * Explicitly consume a pending RAM grant and fetch policy before arming the stream.
  * The caller supplies the Coordinator generation. Bootstrap stays idle until
  * the existing SNTP callback has confirmed synchronization in this boot.
  * TLS can block. Call outside the LVGL lock and serialize with runtime init,

@@ -74,7 +74,7 @@ P2-04 產品路徑主迴圈：`NotificationProductLoop`（FailClosed→takeNext�
 
 P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；runtime `armNotificationProductRuntime`／`isNotificationProductStreamArmed`（未 init／已 started／無效 provision Fail-Closed）。host `start_provisioned_stream_test` 覆蓋雙重 arm、fetchAndArm 101／401。`idf.py build`：`armProvisionedDeviceStream`／`fetchAndArmDeviceStream` live；`stack-chan.bin` 0x39ed40、partition 剩 27%、SHA256 D8D568EA…029BDCB4。未寫入 NVS 密鑰、未自動 fetch。Avatar／實機 Coordinator 仍缺——P2-04 不勾完成。
 
-`loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。產品端由呼叫端明確呼叫 `fetchAndArmNotificationProductRuntime`，傳入 Coordinator 的 generation。入口先檢查 runtime 已初始化、尚未連線，且本次開機已收到既有 SNTP 同步回呼。只有 RTC 或正值的系統時鐘時，入口不讀憑證也不連線。同步確認在同一次開機保留。通過檢查後，入口取樣系統 UTC 毫秒、讀憑證、透過 TLS 取得 policy，再以同一組憑證及已驗證的租約升級 WebSocket。通知 tick 使用同一個 UTC 毫秒來源。初始化與閒置 tick 不會讀取憑證或發起連線。本機操作透過 `requestNotificationProductStream(generation)` 接入。只有啟用通知功能、時鐘已同步且沒有執行中的任務時才接受。FreeRTOS 專用任務依序初始化、握手與輪詢，斷線或啟動失敗即退出，下一次連線需重新請求。顯示更新迴圈只傳遞 Xiaozhi 忙碌狀態。專用任務暫採 8 KiB stack，實機須量測剩餘 stack 與內部 heap。啟用通知的建置在 SETUP → Agent Notifications 提供 Connect notifications。需在建置設定 `STACKCHAN_AGENT_COORDINATOR_GENERATION` 填入與 Coordinator 相符的 1 到 20 位十進位數字（uint64）。開啟頁面不會連線，只有點選才送出請求。提示只回報請求已送出或遭拒。憑證寫入、實機點選與握手仍待驗收。
+`loadNotificationCredentials` 在啟用 `CONFIG_NVS_ENCRYPTION` 時以唯讀方式開啟已初始化的預設 NVS 命名空間 `agent_notify`。`port` 為非零 u16，`host`、`device_id`、`token`、`ca_pem` 為字串，上限依序為 253、128、512、3,999 bytes。讀取出錯或任一欄位無效即回傳無憑證。PEM 僅檢查文字邊界，信任鏈及主機名由後續 TLS 握手驗證。此 NVS 載入器為先前驗證路徑。產品 runtime 從本機配對流程接收 RAM 憑證。beginNotificationProductPairing 記錄本機啟動且已從可信 Coordinator 取得的有效 challenge 與端點。finishNotificationProductPairing 核對同一配對的緊湊 JSON 完成回應、device 類型、通知 scope 與憑證期限後，才交付 RAM 暫存。完成回應只處理一次。拒絕、過期或重啟後無有效 challenge 時不交付憑證。產品端由呼叫端明確呼叫 `fetchAndArmNotificationProductRuntime`，傳入 Coordinator 的 generation。入口先檢查 runtime 已初始化、尚未連線，且本次開機已收到既有 SNTP 同步回呼。只有 RTC 或正值的系統時鐘時，入口不讀憑證也不連線。同步確認在同一次開機保留。通過檢查後，入口取樣系統 UTC 毫秒、一次取用 RAM 憑證，再透過 TLS 取得 policy。若在 GET 期間到期，停止升級。成功升級的串流以憑證及 policy 兩者中較早的期限停權。通知 tick 使用同一個 UTC 毫秒來源。初始化與閒置 tick 不會讀取憑證或發起連線。本機操作透過 `requestNotificationProductStream(generation)` 接入。只有啟用通知功能、時鐘已同步且沒有執行中的任務時才接受。FreeRTOS 專用任務依序初始化、握手與輪詢，斷線或啟動失敗即退出，下一次連線需重新請求。顯示更新迴圈只傳遞 Xiaozhi 忙碌狀態。專用任務暫採 8 KiB stack，實機須量測剩餘 stack 與內部 heap。啟用通知的建置在 SETUP → Agent Notifications 提供 Connect notifications。需在建置設定 `STACKCHAN_AGENT_COORDINATOR_GENERATION` 填入與 Coordinator 相符的 1 到 20 位十進位數字（uint64）。開啟頁面不會連線，只有點選才送出請求。提示只回報請求已送出或遭拒。本機配對 UI、經驗證的 Coordinator 傳輸、實機點選與握手仍待驗收。
 
 P2-04 產品與實機驗收沿用預設 NVS 的既有分割表、資料格式與原廠初始化行為。通知功能不依賴 eFuse 寫入，也不在預設 NVS 持久保存通知 token。後續由本機明確配對取得短效通知憑證，裝置端只保存在 RAM。缺少憑證、到期或重啟後須重新取得有效憑證才能發起通知連線。RAM 佈建與生命週期仍待實作及驗收。
 
@@ -96,7 +96,7 @@ $sdkconfigPath = Join-Path $buildDir 'sdkconfig'
 idf.py -B $buildDir -D "SDKCONFIG=$sdkconfigPath" -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.p204-notifications' build
 ```
 
-此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，目前的憑證載入路徑會 Fail-Closed。這組映像已用於驗證編譯、連結與分割區容量。正向連線驗收需完成短效 RAM 憑證佈建。
+此設定啟用 SETUP 的通知連線入口及資源診斷，測試用 Coordinator generation 設為 `1`。沿用預設分割表及未加密 NVS 設定，缺少 RAM 憑證時會 Fail-Closed。這組映像已用於驗證編譯、連結與分割區容量。正向連線驗收需完成短效 RAM 憑證佈建。
 
 要驗證加密 NVS 的完整編譯與連結，可在同一 ESP-IDF 環境用第三份 defaults 建置至另一個目錄。此設定將 ESP32-S3 的 HMAC provider 與通知路徑連結至同一映像。金鑰 ID `0` 是建置測試輸入，實機的金鑰槽、既有 NVS 資料及回復方案須另行確認。
 

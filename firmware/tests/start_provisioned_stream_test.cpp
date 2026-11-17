@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <esp_timer.h>
 #include <esp_transport_ssl.h>
 #include <esp_transport_ws.h>
@@ -19,7 +20,9 @@ LvglLockHooks makeHalLvglLockHooks() { return {}; }
 }  // namespace stackchan::notifications
 
 using stackchan::notifications::DeviceStreamTlsClient;
-using stackchan::notifications::NotificationCredentials;
+using stackchan::notifications::NotificationPairingEndpoint;
+using stackchan::notifications::beginNotificationProductPairing;
+using stackchan::notifications::finishNotificationProductPairing;
 using stackchan::notifications::NotificationBootstrapResult;
 using stackchan::notifications::NotificationUtcClock;
 using stackchan::notifications::PolicyLeaseHttpClient;
@@ -43,9 +46,11 @@ std::string ca, host, written, ws_path, ws_headers, http_response;
 int connect_result = 0;
 int http_status = 101;
 int connect_calls = 0;
-int credential_reads = 0;
 NotificationUtcClock notification_clock;
-std::optional<NotificationCredentials> stored_credentials;
+std::uint64_t clock_advance_ms = 0;
+std::uint64_t advance_on_http_read_ms = 0;
+std::int64_t monotonic_us = 0;
+bool disconnect_on_poll = true;
 int close_calls = 0;
 int destroy_calls = 0;
 std::size_t read_offset = 0;
@@ -70,20 +75,40 @@ std::uint64_t nowUtcMs()
     return static_cast<std::uint64_t>(
         duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 }
+
+std::string utcAfter(std::uint64_t lifetime_ms)
+{
+    const auto seconds = static_cast<std::time_t>((nowUtcMs() + lifetime_ms) / 1000);
+    char utc[21]{};
+    expect(std::strftime(utc, sizeof(utc), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&seconds)) == 20,
+           "UTC test fixture formatted");
+    return utc;
+}
+
+const NotificationPairingEndpoint pairing_endpoint{
+    "paired-coordinator.example", 8443, "-----BEGIN CERTIFICATE-----\nmock\n-----END CERTIFICATE-----\n",
+};
+
+constexpr auto pairing_token = "paired-token-for-test";
+
+std::string pairingResponse(std::string_view id, std::uint64_t lifetime_ms,
+                            std::string_view token = pairing_token)
+{
+    return "{\"schema_version\":\"0.1\",\"pairing_id\":\"" + std::string(id) +
+           "\",\"subject_id\":\"paired-device\",\"subject_type\":\"device\","
+           "\"access_token\":\"" + std::string(token) + "\","
+           "\"scopes\":[\"device:policy\",\"device:receipt\",\"device:stream\"],"
+           "\"token_expires_at\":\"" + utcAfter(lifetime_ms) + "\"}";
+}
 }  // namespace
 
 std::uint64_t stackchan::notifications::notificationUtcMs() noexcept
 {
-    return notification_clock.utcMs();
+    const auto now = notification_clock.utcMs();
+    return now == 0 ? 0 : now + clock_advance_ms;
 }
 
-std::optional<NotificationCredentials> stackchan::notifications::loadNotificationCredentials()
-{
-    ++credential_reads;
-    return stored_credentials;
-}
-
-std::int64_t esp_timer_get_time() { return 0; }
+std::int64_t esp_timer_get_time() { return monotonic_us; }
 esp_transport_handle_t esp_transport_ssl_init() { return &tls; }
 void esp_transport_ssl_set_cert_data(esp_transport_handle_t handle, const char* value, int size)
 {
@@ -128,9 +153,11 @@ int esp_transport_write(esp_transport_handle_t, const char* data, int size, int)
 int esp_transport_read(esp_transport_handle_t, char* buffer, int size, int)
 {
     if (phase == Phase::Stream) {
-        return -1;  // Simulate disconnect when the armed runtime polls.
+        return disconnect_on_poll ? -1 : 0;
     }
     if (read_offset >= http_response.size()) {
+        clock_advance_ms += advance_on_http_read_ms;
+        advance_on_http_read_ms = 0;
         return 0;
     }
     const auto count = std::min(static_cast<std::size_t>(size), http_response.size() - read_offset);
@@ -145,8 +172,30 @@ int esp_transport_ws_get_read_opcode(esp_transport_handle_t) { return WS_TRANSPO
 int esp_transport_ws_get_read_payload_len(esp_transport_handle_t) { return 0; }
 bool esp_transport_ws_get_fin_flag(esp_transport_handle_t) { return true; }
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc == 2 && std::string_view(argv[1]) == "--after-restart") {
+        using namespace stackchan::notifications;
+        notification_clock.markSynchronized();
+        initNotificationProductRuntime();
+        expect(!finishNotificationProductPairing("pair_before_restart", pairingResponse("pair_before_restart", 10000)),
+               "fresh process cannot accept a response for a pairing from an earlier boot");
+        expect(fetchAndArmNotificationProductRuntime(1) == NotificationBootstrapResult::CredentialsUnavailable &&
+                   connect_calls == 0, "fresh process has no saved grant");
+        expect(beginNotificationProductPairing("pair_after_restart", utcAfter(60000), pairing_endpoint),
+               "a new local pairing can begin after restart");
+        expect(!finishNotificationProductPairing("pair_before_restart", pairingResponse("pair_before_restart", 10000)),
+               "a prior pairing response cannot complete a different active pairing");
+        expect(finishNotificationProductPairing(
+                   "pair_after_restart", pairingResponse("pair_after_restart", 10000, "repaired-token-for-test")),
+               "newly approved pairing delivers a grant to RAM");
+        http_response = httpOk(R"({"policy_id":"desk","version":"v1","privacy_mode":"private","valid_until":"2099-01-01T00:00:00Z"})");
+        expect(fetchAndArmNotificationProductRuntime(1) == NotificationBootstrapResult::Upgraded &&
+                   connect_calls == 2 &&
+                   ws_headers.find("Authorization: Bearer repaired-token-for-test\r\n") != std::string::npos,
+               "new grant fetches policy and upgrades after restart");
+        return 0;
+    }
     PolicyLeaseHttpClient http;
     const auto now_ms = nowUtcMs();
     expect(now_ms > 0, "system clock synchronized for start()");
@@ -248,7 +297,6 @@ int main()
     tickNotificationProductRuntime(0, now_ms, false);
     expect(connect_calls == calls_before_arm && !isNotificationProductStreamArmed(),
            "runtime init leaves stream idle without a connection attempt");
-    expect(credential_reads == 0, "uninitialized call, init and idle tick never load credentials");
     phase = Phase::Stream;
     http_status = 101;
 
@@ -291,7 +339,7 @@ int main()
     expect(notification_clock.utcMs() == 0, "wall clock alone does not count as SNTP synchronization");
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::ClockUnsynchronized,
            "unsynchronized clock blocks bootstrap");
-    expect(credential_reads == 0 && connect_calls == calls_before_fetch, "unsynchronized clock performs no I/O");
+    expect(connect_calls == calls_before_fetch, "unsynchronized clock performs no I/O");
     const auto utc_before_sync = nowUtcMs();
     notification_clock.markSynchronized();
     const auto synchronized_utc = notification_clock.utcMs();
@@ -300,19 +348,55 @@ int main()
            "after synchronization the clock returns current UTC milliseconds");
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::CredentialsUnavailable,
            "missing credentials block bootstrap");
-    expect(credential_reads == 1 && connect_calls == calls_before_fetch && !isNotificationProductStreamArmed(),
+    expect(connect_calls == calls_before_fetch && !isNotificationProductStreamArmed(),
            "missing credentials cause zero connections");
 
-    stored_credentials = NotificationCredentials{
-        "paired-coordinator.example", request.port, request.coordinator_ca_pem, "paired-token", "paired-device",
+    expect(beginNotificationProductPairing("pair_rejected", utcAfter(60000), pairing_endpoint),
+           "locally initiated pairing can await confirmation");
+    expect(!finishNotificationProductPairing("pair_rejected", R"({"schema_version":"0.1","error":"forbidden"})"),
+           "Coordinator denial does not deliver credentials");
+    expect(!finishNotificationProductPairing("pair_rejected", pairingResponse("pair_rejected", 10000)),
+           "a denied attempt cannot be reused");
+    expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::CredentialsUnavailable &&
+               connect_calls == calls_before_fetch, "denied pairing opens no connections");
+    expect(beginNotificationProductPairing("pair_wrong_scope", utcAfter(60000), pairing_endpoint),
+           "begin a pairing to check scope validation");
+    auto wrong_scope = pairingResponse("pair_wrong_scope", 10000);
+    wrong_scope.replace(wrong_scope.find("device:stream"), std::strlen("device:stream"), "device:policy");
+    expect(!finishNotificationProductPairing("pair_wrong_scope", wrong_scope),
+           "duplicate scope cannot replace the required stream scope");
+    expect(beginNotificationProductPairing("pair_expired", utcAfter(2000), pairing_endpoint),
+           "begin a pairing with a short challenge deadline");
+    clock_advance_ms = 3000;
+    expect(!finishNotificationProductPairing("pair_expired", pairingResponse("pair_expired", 10000)),
+           "expired local challenge cannot deliver credentials");
+    clock_advance_ms = 0;
+
+    unsigned pairing_number = 0;
+    const auto stage = [&](std::uint64_t lifetime_ms = 10000) {
+        const auto id = "pair_" + std::to_string(++pairing_number);
+        const auto response = pairingResponse(id, lifetime_ms);
+        expect(beginNotificationProductPairing(id, utcAfter(60000), pairing_endpoint) &&
+                   finishNotificationProductPairing(id, response),
+               "local pairing completion stages a valid RAM grant");
+        expect(!finishNotificationProductPairing(id, response), "completed response cannot be replayed");
     };
     phase = Phase::Http;
+    stage();
+    clock_advance_ms = 20000;
+    expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::CredentialsUnavailable &&
+               connect_calls == calls_before_fetch, "a staged grant that expires opens no connection");
+    clock_advance_ms = 0;
+    stage();
     http_response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::PolicyUnavailable,
            "policy denial blocks upgrade");
     expect(connect_calls == calls_before_fetch + 1 && phase == Phase::Http && !isNotificationProductStreamArmed(),
            "policy denial only attempts the policy connection");
+    expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::CredentialsUnavailable &&
+               connect_calls == calls_before_fetch + 1, "failed bootstrap cannot replay the grant");
 
+    stage();
     http_response = httpOk(R"({"policy_id":"desk","version":"v1","privacy_mode":"private","valid_until":"2099-01-01T00:00:00Z","revoked":true})");
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::PolicyUnavailable,
            "revoked lease blocks upgrade");
@@ -320,6 +404,7 @@ int main()
            "revoked lease only attempts the policy connection");
 
     http_response = httpOk(body);
+    stage();
     http_status = 401;
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::StreamUpgradeFailed,
            "upgrade denial leaves stream idle");
@@ -328,23 +413,34 @@ int main()
 
     phase = Phase::Http;
     http_status = 101;
+    stage();
+    advance_on_http_read_ms = 20000;
+    expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::CredentialsUnavailable &&
+               connect_calls == calls_before_fetch + 5 && phase == Phase::Http,
+           "expiry during policy GET blocks the WebSocket upgrade");
+    clock_advance_ms = 0;
+    stage(3000);
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::Upgraded,
            "valid credentials and policy arm the runtime");
-    expect(connect_calls == calls_before_fetch + 6 && isNotificationProductStreamArmed(),
+    expect(connect_calls == calls_before_fetch + 7 && isNotificationProductStreamArmed(),
            "successful bootstrap fetches policy and upgrades exactly once");
     expect(written.starts_with("GET /v1/devices/paired-device/policy HTTP/1.1\r\n") &&
-               written.find("Authorization: Bearer paired-token\r\n") != std::string::npos &&
-               host == stored_credentials->coordinator_host && ca == stored_credentials->coordinator_ca_pem,
+               written.find("Authorization: Bearer paired-token-for-test\r\n") != std::string::npos &&
+               host == pairing_endpoint.coordinator_host && ca == pairing_endpoint.coordinator_ca_pem,
            "policy GET uses the loaded pairing");
-    expect(ws_headers.find("Authorization: Bearer paired-token\r\n") != std::string::npos &&
+    expect(ws_headers.find("Authorization: Bearer paired-token-for-test\r\n") != std::string::npos &&
                ws_headers.find("X-StackChan-Device-Id: paired-device\r\n") != std::string::npos &&
                ws_headers.find("X-StackChan-Policy-Version: v1\r\n") != std::string::npos,
            "stream upgrade uses the pairing and fetched policy version");
 
-    const int reads_after_arm = credential_reads;
     expect(fetchAndArmNotificationProductRuntime(request.generation) == NotificationBootstrapResult::AlreadyArmed,
            "already armed runtime refuses bootstrap");
-    expect(credential_reads == reads_after_arm && connect_calls == calls_before_fetch + 6,
-           "duplicate bootstrap reads no credentials and opens no connections");
-    tickNotificationProductRuntime(0, now_ms, false);
+    expect(connect_calls == calls_before_fetch + 7, "duplicate bootstrap opens no connections");
+    disconnect_on_poll = false;
+    tickNotificationProductRuntime(0, nowUtcMs(), false);
+    expect(isNotificationProductStreamArmed(), "valid stream can poll before expiry");
+    // Cross the grant deadline before the four-second heartbeat deadline.
+    monotonic_us = 3500000;
+    tickNotificationProductRuntime(3500, nowUtcMs(), false);
+    expect(!isNotificationProductStreamArmed(), "grant expiry ends a stream with longer policy validity");
 }

@@ -11,6 +11,7 @@
 namespace stackchan::notifications {
 namespace {
 
+#ifdef CONFIG_NVS_ENCRYPTION
 struct NvsHandle {
     nvs_handle_t value;
     ~NvsHandle() { nvs_close(value); }
@@ -30,6 +31,7 @@ bool readString(nvs_handle_t handle, const char* key, std::size_t max_bytes, std
     out.pop_back();
     return true;
 }
+#endif
 
 bool alphanumeric(char c)
 {
@@ -104,7 +106,7 @@ std::optional<NotificationCredentials> loadNotificationCredentials()
 {
 #ifndef CONFIG_NVS_ENCRYPTION
     return std::nullopt;
-#endif
+#else
     nvs_handle_t raw_handle;
     if (nvs_open("agent_notify", NVS_READONLY, &raw_handle) != ESP_OK) {
         return std::nullopt;
@@ -120,6 +122,7 @@ std::optional<NotificationCredentials> loadNotificationCredentials()
         return std::nullopt;
     }
     return credentials;
+#endif
 }
 
 }  // namespace stackchan::notifications

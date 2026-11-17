@@ -241,6 +241,7 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
 
     add_executable(start_provisioned_stream_test
         start_provisioned_stream_test.cpp
+        ../main/stackchan/notifications/notification_credentials.cpp
         ../main/stackchan/notifications/notification_product_runtime.cpp
         ../main/stackchan/notifications/notification_product_loop.cpp
         ../main/stackchan/notifications/notification_product_loop_poll.cpp
@@ -259,9 +260,13 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/device_stream_ingress.cpp
         ../main/stackchan/notifications/notification_controller.cpp
     )
-    target_include_directories(start_provisioned_stream_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    target_include_directories(start_provisioned_stream_test PRIVATE tls_fakes nvs_fakes ../main "${ARDUINO_JSON_INCLUDE}")
+    if(TARGET Threads::Threads)
+        target_link_libraries(start_provisioned_stream_test PRIVATE Threads::Threads)
+    endif()
     target_compile_features(start_provisioned_stream_test PRIVATE cxx_std_20)
     add_test(NAME start_provisioned_stream_test COMMAND $<TARGET_FILE:start_provisioned_stream_test>)
+    add_test(NAME notification_pairing_after_restart_test COMMAND $<TARGET_FILE:start_provisioned_stream_test> --after-restart)
 
     add_executable(device_loopback_handshake_test
         device_loopback_handshake_test.cpp
