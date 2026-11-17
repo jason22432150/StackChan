@@ -78,6 +78,8 @@ P2-04 憑證／arm：`armProvisionedDeviceStream`＋`fetchAndArmDeviceStream`；
 
 加密 NVS 建置的 HAL 啟動遇到預設分割區初始化錯誤時，會回報原始錯誤並停止啟動流程。HAL 不會因空頁不足或資料版本不符而自動清除該分割區。未加密建置沿用既有的自動復原。實機驗收前仍需確認現有資料的備份及回復方式，並審查加密初始化對金鑰與裝置狀態的影響。
 
+燒錄前可用 `firmware/verify_nvs_backup.py` 離線比對兩份獨立擷取的原始 NVS 備份。工具依裝置對應的 CSV 分割表核對長度，拒絕全零／全擦除樣本與同一檔案的別名，並回報 offset、大小和 SHA-256。若裝置使用不同分割表，須以 `--partition-table` 指定相符的 CSV。備份可能包含配對或 Wi-Fi 資料，應保存在受保護的位置。相同摘要只能證明輸入一致，分割表來源、裝置身分、金鑰狀態與可回復性仍須另外確認。
+
 實機量測可在驗收映像同時啟用 `STACKCHAN_RUNTIME_BASELINE` 與通知功能。通知 task 在 `bootstrap_failed`、`upgraded`、`disconnected` 記錄 `AGENT_NOTIFY_RESOURCE`，欄位包含本次 task 的 stack 最小餘量、當前內部 heap、開機以來內部 heap 低水位與當前最大連續區塊，單位均為 bytes。可對照既有 `StackChanBaseline` 的顯示更新與 LVGL 持鎖間隔。同一行的 `bootstrap_result` 使用固定代碼，區分 runtime 未初始化、串流已開啟、時鐘未同步、憑證不可用、政策取得或驗證失敗，以及串流啟用失敗。紀錄不含憑證、policy 內容或 TLS 診斷明細。若 task 未能建立，該 task 不會產生資源紀錄。
 
 ## 4. 狀態仲裁矩陣
