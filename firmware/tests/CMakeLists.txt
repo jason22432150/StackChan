@@ -29,6 +29,14 @@ target_include_directories(notification_controller_test PRIVATE ../main)
 target_compile_features(notification_controller_test PRIVATE cxx_std_17)
 add_test(NAME notification_controller_test COMMAND $<TARGET_FILE:notification_controller_test>)
 
+add_executable(resource_arbiter_test
+    resource_arbiter_test.cpp
+    ../main/stackchan/notifications/resource_arbiter.cpp
+)
+target_include_directories(resource_arbiter_test PRIVATE ../main)
+target_compile_features(resource_arbiter_test PRIVATE cxx_std_17)
+add_test(NAME resource_arbiter_test COMMAND $<TARGET_FILE:resource_arbiter_test>)
+
 add_executable(runtime_limits_test
     runtime_limits_test.cpp
     ../main/stackchan/notifications/runtime_limits.cpp

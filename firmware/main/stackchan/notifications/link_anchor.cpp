@@ -3,6 +3,7 @@
  * 此檔只以函式位址建立 GC root（CMake 以 -u 強制拉入），絕不執行網路／UI／Xiaozhi 路徑。
  */
 #include "policy_lease.h"
+#include "resource_arbiter.h"
 #include "runtime_limits.h"
 #include "stream_bootstrap.h"
 #include "stream_session_start.h"
@@ -12,6 +13,7 @@ namespace {
 using RetainFn = const void*;
 using stackchan::notifications::fetchAndProvisionDeviceStream;
 using stackchan::notifications::parsePolicyLeaseJson;
+using stackchan::notifications::resourceArbiterCommitGate;
 using stackchan::notifications::sanitizeRuntimeProfile;
 using stackchan::notifications::startProvisionedDeviceStream;
 
@@ -20,6 +22,7 @@ const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&parsePolicyLeaseJson),
     reinterpret_cast<RetainFn>(&fetchAndProvisionDeviceStream),
     reinterpret_cast<RetainFn>(&startProvisionedDeviceStream),
+    reinterpret_cast<RetainFn>(&resourceArbiterCommitGate),
 };
 
 }  // namespace

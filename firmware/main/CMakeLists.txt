@@ -30,6 +30,7 @@ file(GLOB_RECURSE STACK_CHAN_SOURCES
 # link_anchor.cpp：在尚無執行期呼叫端時，以 used+retain 擋住 --gc-sections 丟棄。
 set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/notification_controller.cpp"
+    "stackchan/notifications/resource_arbiter.cpp"
     "stackchan/notifications/device_stream_ingress.cpp"
     "stackchan/notifications/device_stream_json.cpp"
     "stackchan/notifications/device_stream_tls_client.cpp"
