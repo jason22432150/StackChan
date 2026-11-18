@@ -240,3 +240,114 @@ def test_compose_file_declares_sqlite_volume() -> None:
     assert "healthcheck:" in compose
     assert "/healthz" in compose
     assert "STACKCHAN_TLS" in compose
+    assert "/dashboard" in compose
+
+
+def test_dashboard_html_is_public_shell(pi_server: dict[str, Any]) -> None:
+    req = Request(f"{pi_server['base']}/dashboard", method="GET")
+    with urlopen(req, timeout=3) as resp:
+        assert resp.status == 200
+        assert "text/html" in resp.headers.get("Content-Type", "")
+        body = resp.read().decode("utf-8")
+    assert "stackchan-pi-coordinator" in body
+    assert "test-bridge-token" not in body  # 不得嵌入真實 Token
+    assert "/v1/events" in body
+
+
+def test_list_events_requires_token_and_returns_summaries(
+    pi_server: dict[str, Any], sample_event: dict[str, Any]
+) -> None:
+    status, payload = _request(pi_server["base"], "GET", "/v1/events?limit=10")
+    assert status == 401
+    assert payload["error"]["code"] == "unauthorized"
+
+    status, _ack = _request(
+        pi_server["base"],
+        "POST",
+        "/v1/events/batch",
+        token=pi_server["token"],
+        body={"bridge_id": "bridge_primary", "epoch": "epoch-pi-1", "events": [sample_event]},
+    )
+    assert status == 200
+
+    status, listing = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/events?limit=10",
+        token=pi_server["token"],
+    )
+    assert status == 200
+    assert listing["next_cursor"] is None
+    assert len(listing["items"]) == 1
+    item = listing["items"][0]
+    assert item["event_id"] == "evt_pi_001"
+    assert item["event_type"] == "task.started"
+    assert item["evidence_level"] == "observed"
+    # 摘要不得夾帶完整 payload／可能敏感欄位名稱外的本文
+    assert "payload_json" not in item
+    assert "input_messages" not in item
+    assert "last_assistant_message" not in item
+
+
+def test_list_events_rejects_bad_limit(pi_server: dict[str, Any]) -> None:
+    status, payload = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/events?limit=0",
+        token=pi_server["token"],
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "bad_request"
+
+    status, payload = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/events?limit=101",
+        token=pi_server["token"],
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "bad_request"
+
+    status, payload = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/events?limit=abc",
+        token=pi_server["token"],
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "bad_request"
+
+
+def test_list_events_rejects_wrong_token(pi_server: dict[str, Any]) -> None:
+    status, payload = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/events?limit=10",
+        token="wrong-token",
+    )
+    assert status == 401
+    assert payload["error"]["code"] == "unauthorized"
+
+
+def test_summarize_event_row_strips_sensitive_keys() -> None:
+    from stackchan.coordinator.pi_dashboard import summarize_event_row
+
+    row = {
+        "event_id": "evt_1",
+        "bridge_id": "bridge_primary",
+        "epoch": "epoch-1",
+        "bridge_sequence": 1,
+        "event_type": "response.completed",
+        "evidence_level": "observed",
+        "privacy_class": "internal",
+        "observed_at": "2026-11-18T12:00:00Z",
+        "ingested_at": "2026-11-18T12:00:01Z",
+        "payload_json": '{"secret":true}',
+        "input_messages": ["do not leak"],
+        "last_assistant_message": "nope",
+    }
+    summary = summarize_event_row(row)
+    assert summary["event_id"] == "evt_1"
+    assert "payload_json" not in summary
+    assert "input_messages" not in summary
+    assert "last_assistant_message" not in summary

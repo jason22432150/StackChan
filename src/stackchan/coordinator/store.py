@@ -554,6 +554,55 @@ class CoordinatorStore:
         ).fetchall()
         return [json.loads(row["payload_json"]) for row in rows]
 
+    def list_recent_event_summaries(
+        self, *, limit: int = 50, bridge_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        管理頁用近期事件摘要（不含 payload_json／Prompt）。
+        limit 範圍 1..100；可選 bridge_id 過濾（個人版 Bridge Token 應對齊自身）。
+        """
+        if not 1 <= limit <= 100:
+            raise CoordinatorStoreError("limit 必須在 1..100")
+        if bridge_id is None:
+            rows = self._conn.execute(
+                """
+                SELECT event_id, bridge_id, epoch, bridge_sequence, event_type,
+                       evidence_level, privacy_class, observed_at, ingested_at
+                FROM events
+                ORDER BY ingested_at DESC, bridge_sequence DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            if not bridge_id or len(bridge_id) > 128:
+                raise CoordinatorStoreError("bridge_id 無效")
+            rows = self._conn.execute(
+                """
+                SELECT event_id, bridge_id, epoch, bridge_sequence, event_type,
+                       evidence_level, privacy_class, observed_at, ingested_at
+                FROM events
+                WHERE bridge_id = ?
+                ORDER BY ingested_at DESC, bridge_sequence DESC
+                LIMIT ?
+                """,
+                (bridge_id, limit),
+            ).fetchall()
+        return [
+            {
+                "event_id": str(row["event_id"]),
+                "bridge_id": str(row["bridge_id"]),
+                "epoch": str(row["epoch"]),
+                "bridge_sequence": int(row["bridge_sequence"]),
+                "event_type": str(row["event_type"]),
+                "evidence_level": str(row["evidence_level"]),
+                "privacy_class": str(row["privacy_class"]),
+                "observed_at": str(row["observed_at"]),
+                "ingested_at": str(row["ingested_at"]),
+            }
+            for row in rows
+        ]
+
     def record_task_conflict(
         self,
         *,

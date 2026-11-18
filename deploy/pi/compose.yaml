@@ -8,6 +8,8 @@
 #   STACKCHAN_BRIDGE_ID=bridge_primary
 #   STACKCHAN_LISTEN_PORT=8443
 #
+# 管理頁：http://<pi-ip>:8443/dashboard （唯讀；瀏覽器貼上 Bridge Token）
+#
 # 安全注意：預設為明文 HTTP（僅供信任的家庭 LAN 開發）。
 # 正式對 Bridge 通訊前請改用 TLS（STACKCHAN_TLS_CERT／STACKCHAN_TLS_KEY）
 # 或限制防火牆／僅內網；埠號 8443 不代表已啟用 HTTPS。

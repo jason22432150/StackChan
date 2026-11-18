@@ -3,11 +3,15 @@ Raspberry Pi Coordinator：個人版最小 HTTP 服務。
 
 提供：
 - GET  /healthz              容器健康檢查（不含密鑰）
+- GET  /dashboard            簡易唯讀管理頁（HTML；Token 由瀏覽器送出）
 - POST /v1/events/batch      Bridge 批次匯入（先寫入 SQLite 再 ACK）
+- GET  /v1/events            近期事件摘要（需 dashboard:read；不含 Prompt）
 - GET  /v1/sync/status       查詢連續 ACK 游標與缺口
 
 刻意保持精簡：stdlib HTTP、單一 Bridge Token、可選 TLS。
-完整配對／Dashboard／CoreS3 stream 不在本模組。
+個人版：同一 Bridge Token 兼具 bridge:write／bridge:sync／dashboard:read
+（單管理員、單 Bridge）；管理頁事件列表僅回傳該 bridge_id 摘要。
+完整配對／CoreS3 stream 不在本模組。
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 from stackchan.contracts import AuthorizationError, Principal
 from stackchan.contracts.authz import ApiGate, TokenDirectory
 from stackchan.coordinator import CoordinatorStore, CoordinatorStoreError
+from stackchan.coordinator.pi_dashboard import render_dashboard_html, summarize_event_row
 from stackchan.sync.coordinator_api import CoordinatorSyncApi, SyncFailClosedError
 from stackchan.sync.models import BatchInput
 
@@ -53,7 +58,7 @@ def build_bridge_token_directory(*, bridge_id: str, bridge_token: str) -> TokenD
         Principal(
             subject_id=bridge_id,
             subject_type="bridge",
-            scopes=frozenset({"bridge:write", "bridge:sync"}),
+            scopes=frozenset({"bridge:write", "bridge:sync", "dashboard:read"}),
         ),
     )
     return tokens
@@ -75,38 +80,57 @@ class PiCoordinatorApp:
         authorization_header: str | None,
         body: bytes,
         query: dict[str, list[str]],
-    ) -> tuple[int, dict[str, Any]]:
-        """回傳 (status, JSON object)。"""
-        # healthz 不碰 SQLite，可略過鎖以利 Docker healthcheck
+    ) -> tuple[int, Any, str]:
+        """回傳 (status, body, content_type)。JSON body 為 dict；dashboard 為 HTML str。"""
+        # healthz／dashboard 殼層不碰 SQLite，可略過鎖以利 Docker healthcheck
         if method == "GET" and path == "/healthz":
             return 200, {
                 "status": "ok",
                 "service": "stackchan-pi-coordinator",
                 "mode": self.api.mode.value,
-            }
+            }, "application/json"
+        if method == "GET" and path == "/dashboard":
+            return 200, render_dashboard_html(), "text/html; charset=utf-8"
 
         with self._lock:
             try:
                 if method == "POST" and path == "/v1/events/batch":
-                    return self._submit_batch(authorization_header, body)
+                    status, payload = self._submit_batch(authorization_header, body)
+                    return status, payload, "application/json"
+                if method == "GET" and path == "/v1/events":
+                    status, payload = self._list_events(authorization_header, query)
+                    return status, payload, "application/json"
                 if method == "GET" and path == "/v1/sync/status":
-                    return self._sync_status(authorization_header, query)
+                    status, payload = self._sync_status(authorization_header, query)
+                    return status, payload, "application/json"
             except AuthorizationError as exc:
-                return exc.http_status, {"error": {"code": exc.code, "message": exc.message}}
+                return (
+                    exc.http_status,
+                    {"error": {"code": exc.code, "message": exc.message}},
+                    "application/json",
+                )
             except SyncFailClosedError as exc:
-                return 503, {
-                    "error": {
-                        "code": "fail_closed",
-                        "message": exc.message,
-                        "mode": exc.mode.value,
-                    }
-                }
+                return (
+                    503,
+                    {
+                        "error": {
+                            "code": "fail_closed",
+                            "message": exc.message,
+                            "mode": exc.mode.value,
+                        }
+                    },
+                    "application/json",
+                )
             except CoordinatorStoreError as exc:
-                return 400, {"error": {"code": "store_error", "message": str(exc)}}
+                return 400, {"error": {"code": "store_error", "message": str(exc)}}, "application/json"
             except (json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
-                return 400, {"error": {"code": "bad_request", "message": str(exc)}}
+                return 400, {"error": {"code": "bad_request", "message": str(exc)}}, "application/json"
 
-        return 404, {"error": {"code": "not_found", "message": f"未知路由 {method} {path}"}}
+        return (
+            404,
+            {"error": {"code": "not_found", "message": f"未知路由 {method} {path}"}},
+            "application/json",
+        )
 
     def _submit_batch(
         self,
@@ -124,6 +148,28 @@ class PiCoordinatorApp:
         ack = self.api.submit_event_batch(batch, authorization_header=authorization_header)
         # 規格：先可靠儲存再確認 Bridge
         return 200, ack.to_dict()
+
+    def _list_events(
+        self,
+        authorization_header: str | None,
+        query: dict[str, list[str]],
+    ) -> tuple[int, dict[str, Any]]:
+        # OpenAPI：GET /v1/events 需 dashboard:read；個人版只回摘要欄位。
+        principal = self.api.gate.authorize("GET", "/v1/events", authorization_header)
+        if principal is None:
+            raise AuthorizationError("unauthorized", "缺少或無效的 Bearer token", http_status=401)
+        raw_limit = (query.get("limit") or ["50"])[0]
+        try:
+            limit = int(raw_limit)
+        except ValueError as exc:
+            raise ValueError("limit 必須為整數") from exc
+        if not 1 <= limit <= 100:
+            raise ValueError("limit 必須在 1..100")
+        # Bridge principal 只可見自己的事件；其他 subject 暫不開放跨橋讀取。
+        scope_bridge = principal.subject_id if principal.subject_type == "bridge" else None
+        rows = self.store.list_recent_event_summaries(limit=limit, bridge_id=scope_bridge)
+        items = [summarize_event_row(row) for row in rows]
+        return 200, {"items": items, "next_cursor": None}
 
     def _sync_status(
         self,
@@ -164,20 +210,35 @@ def make_handler(app: PiCoordinatorApp) -> type[BaseHTTPRequestHandler]:
             try:
                 body = self._read_body() if method in {"POST", "PUT", "PATCH"} else b""
             except ValueError as exc:
-                status, payload = 400, {"error": {"code": "bad_request", "message": str(exc)}}
+                status: int = 400
+                payload: Any = {"error": {"code": "bad_request", "message": str(exc)}}
+                content_type = "application/json"
             else:
-                status, payload = app.handle(
+                status, payload, content_type = app.handle(
                     method=method,
                     path=parsed.path,
                     authorization_header=self.headers.get("Authorization"),
                     body=body,
                     query=query,
                 )
-            data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+            if content_type.startswith("text/html"):
+                data = str(payload).encode("utf-8")
+                ctype = content_type
+            else:
+                data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+                ctype = "application/json; charset=utf-8"
             self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            if content_type.startswith("text/html"):
+                self.send_header(
+                    "Content-Security-Policy",
+                    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+                    "connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'",
+                )
             self.end_headers()
             self.wfile.write(data)
 
