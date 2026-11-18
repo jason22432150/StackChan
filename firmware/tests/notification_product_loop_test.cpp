@@ -124,6 +124,21 @@ void testXiaozhiBusyBlocksPresent()
     expect(!fx.presenter.isVisible(), "not visible under busy");
 }
 
+void testXiaozhiBusyPreemptsVisibleNotice()
+{
+    Fixture fx;
+    fx.activate();
+    expect(fx.ingress.receiveIntent({1, "dev", "v1", 1, 1002}, "dlv-vis", 2000, 2), "enqueue");
+    expect(fx.loop.tick(2, 1002) == Outcome::Presented, "presented");
+    expect(fx.presenter.isVisible(), "visible");
+    // 對話開始：清屏；佇列中下一則在 Busy 期間不得 present。
+    fx.presenter.onXiaozhiActivity(ResourceArbiter::XiaozhiActivity::Busy, 3);
+    expect(!fx.presenter.isVisible(), "preempted");
+    expect(fx.ingress.receiveIntent({1, "dev", "v1", 1, 1003}, "dlv-wait", 2000, 3), "queued");
+    expect(fx.loop.tick(3, 1003) == Outcome::Idle, "busy holds queue");
+    expect(!fx.presenter.isVisible(), "still not visible");
+}
+
 void testLinkedAnchorProbe()
 {
     expect(stackchan::notifications::notificationProductLoopLinked(), "link retain probe");
@@ -137,6 +152,7 @@ int main()
     testFailClosedInterruptOnHeartbeatTimeout();
     testTransportDisconnectClearsSession();
     testXiaozhiBusyBlocksPresent();
+    testXiaozhiBusyPreemptsVisibleNotice();
     testLinkedAnchorProbe();
     return 0;
 }

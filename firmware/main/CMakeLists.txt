@@ -61,6 +61,7 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/notice_motion_plan.cpp"
     "stackchan/notifications/notification_motion_reactor.cpp"
     "stackchan/notifications/notice_motion_device_sink.cpp"
+    "stackchan/notifications/xiaozhi_priority_tick.cpp"
     "stackchan/notifications/link_anchor.cpp"
 )
 list(APPEND STACK_CHAN_SOURCES ${STACK_CHAN_NOTIFICATION_SOURCES})

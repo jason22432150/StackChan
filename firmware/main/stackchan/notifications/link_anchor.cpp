@@ -17,6 +17,7 @@
 #include "runtime_limits.h"
 #include "stream_bootstrap.h"
 #include "stream_session_start.h"
+#include "xiaozhi_priority_tick.h"
 
 namespace {
 
@@ -40,6 +41,7 @@ using stackchan::notifications::parsePolicyLeaseJson;
 using stackchan::notifications::resourceArbiterCommitGate;
 using stackchan::notifications::sanitizeRuntimeProfile;
 using stackchan::notifications::startProvisionedDeviceStream;
+using stackchan::notifications::xiaozhiPriorityBlocksPresent;
 
 const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&sanitizeRuntimeProfile),
@@ -61,6 +63,7 @@ const RetainFn kMvpLinkRetain[] = {
     reinterpret_cast<RetainFn>(&mvpSoftWorstCaseRevokeMs),
     reinterpret_cast<RetainFn>(&failClosedRevokeProbeLinked),
     reinterpret_cast<RetainFn>(&notificationProductLoopLinked),
+    reinterpret_cast<RetainFn>(&xiaozhiPriorityBlocksPresent),
 };
 
 }  // namespace

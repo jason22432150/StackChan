@@ -141,6 +141,17 @@ target_include_directories(notification_motion_reactor_test PRIVATE ../main)
 target_compile_features(notification_motion_reactor_test PRIVATE cxx_std_17)
 add_test(NAME notification_motion_reactor_test COMMAND $<TARGET_FILE:notification_motion_reactor_test>)
 
+add_executable(xiaozhi_priority_tick_test
+    xiaozhi_priority_tick_test.cpp
+    ../main/stackchan/notifications/xiaozhi_priority_tick.cpp
+    ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
+    ../main/stackchan/notifications/resource_arbiter.cpp
+)
+target_include_directories(xiaozhi_priority_tick_test PRIVATE ../main)
+target_compile_features(xiaozhi_priority_tick_test PRIVATE cxx_std_17)
+add_test(NAME xiaozhi_priority_tick_test COMMAND $<TARGET_FILE:xiaozhi_priority_tick_test>)
+
 add_executable(fail_closed_guard_test
     fail_closed_guard_test.cpp
     ../main/stackchan/notifications/fail_closed_guard.cpp
@@ -304,6 +315,7 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/notification_product_loop_poll.cpp
         ../main/stackchan/notifications/notification_presenter.cpp
         ${STACKCHAN_NOTICE_MOTION_SOURCES}
+        ../main/stackchan/notifications/xiaozhi_priority_tick.cpp
         ../main/stackchan/notifications/fail_closed_guard.cpp
         ../main/stackchan/notifications/resource_arbiter.cpp
         ../main/stackchan/notifications/presentation_receipt.cpp

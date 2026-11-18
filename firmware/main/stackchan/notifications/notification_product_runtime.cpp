@@ -15,6 +15,7 @@
 #include "runtime_limits.h"
 #include "stream_bootstrap.h"
 #include "stream_session_start.h"
+#include "xiaozhi_priority_tick.h"
 
 #include <algorithm>
 #include <array>
@@ -226,9 +227,8 @@ void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, 
     if (!rt.ready) {
         return;
     }
-    const auto activity =
-        xiaozhi_busy ? ResourceArbiter::XiaozhiActivity::Busy : ResourceArbiter::XiaozhiActivity::Idle;
-    rt.presenter.onXiaozhiActivity(activity, now_ms);
+    // Xiaozhi 優先：先搶占／清屏，再 poll（避免 Busy 期間 dequeue 新通知）。
+    applyXiaozhiPriorityTick(rt.presenter, xiaozhi_busy, now_ms);
     // read_timeout_ms=0：不在 update task 內阻塞等待 socket。
     (void)notificationProductLoopPollClient(rt.loop, rt.client, now_ms, utc_ms, 0);
 }
