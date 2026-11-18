@@ -54,18 +54,30 @@ def test_build_intent_is_contract_valid_and_a0() -> None:
 def test_store_enqueue_list_dedup_and_ttl(tmp_path: Path) -> None:
     store = CoordinatorStore(tmp_path / "c.sqlite3")
     assert store.schema_version() >= 3
-    intent = build_personal_notification_intent(_event("evt_b"), device_id="cores3_primary")
+    clock = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+    intent = build_personal_notification_intent(
+        _event("evt_b"), device_id="cores3_primary", now=clock
+    )
     assert store.enqueue_pending_notification(intent) is True
     assert store.enqueue_pending_notification(intent) is False
     items = store.list_pending_notifications(limit=10)
     assert len(items) == 1
     assert items[0]["delivery_id"] == intent["delivery_id"]
 
-    # 過期
+    other = build_personal_notification_intent(
+        _event("evt_other"), device_id="cores3_other", now=clock
+    )
+    assert store.enqueue_pending_notification(other) is True
+    scoped = store.list_pending_notifications(limit=10, device_id="cores3_primary")
+    assert len(scoped) == 1
+    assert scoped[0]["device_id"] == "cores3_primary"
+
+    # 僅讓 primary 過期；other 仍在 TTL 內
     store._conn.execute(
         "UPDATE pending_notifications SET expires_at = ? WHERE delivery_id = ?",
         ("2020-01-01T00:00:00Z", intent["delivery_id"]),
     )
-    assert store.expire_pending_notifications(now_iso="2026-11-19T00:00:00Z") == 1
-    assert store.list_pending_notifications(limit=10) == []
+    assert store.expire_pending_notifications(now_iso="2026-11-19T12:00:00Z") == 1
+    assert store.list_pending_notifications(limit=10, device_id="cores3_primary") == []
+    assert len(store.list_pending_notifications(limit=10, device_id="cores3_other")) == 1
     store.close()

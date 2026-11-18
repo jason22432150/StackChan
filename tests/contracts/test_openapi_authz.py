@@ -58,6 +58,9 @@ def test_openapi_routes_declare_required_scopes() -> None:
     stream = find_route("GET", "/v1/device-stream")
     assert stream is not None
     assert stream.required_scopes == frozenset({"device:stream"})
+    device_pending = find_route("GET", "/v1/devices/cores3_1/notifications/pending")
+    assert device_pending is not None
+    assert device_pending.required_scopes == frozenset({"device:stream"})
 
 
 def test_missing_authorization_is_unauthorized(gate: ApiGate) -> None:

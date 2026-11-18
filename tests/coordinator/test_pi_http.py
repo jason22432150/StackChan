@@ -41,6 +41,8 @@ def pi_server(tmp_path: Path):
         db_path=db_path,
         bridge_id="bridge_primary",
         bridge_token="test-bridge-token",
+        device_id="cores3_primary",
+        device_token="test-device-token",
         host="127.0.0.1",
         port=0,
     )
@@ -54,6 +56,8 @@ def pi_server(tmp_path: Path):
             "base": base,
             "db_path": db_path,
             "token": "test-bridge-token",
+            "device_token": "test-device-token",
+            "device_id": "cores3_primary",
             "server": server,
             "store": store,
             "app": app,
@@ -401,3 +405,50 @@ def test_batch_enqueues_pending_notification(
     )
     assert status == 200
     assert len(pending2["items"]) == 1
+
+
+def test_device_pull_pending_requires_device_token(
+    pi_server: dict[str, Any], sample_event: dict[str, Any]
+) -> None:
+    device_path = f"/v1/devices/{pi_server['device_id']}/notifications/pending"
+    status, _ = _request(pi_server["base"], "GET", device_path)
+    assert status == 401
+
+    status, payload = _request(
+        pi_server["base"],
+        "GET",
+        device_path,
+        token=pi_server["token"],
+    )
+    assert status == 403
+    assert payload["error"]["code"] == "forbidden"
+
+    status, ack = _request(
+        pi_server["base"],
+        "POST",
+        "/v1/events/batch",
+        token=pi_server["token"],
+        body={"bridge_id": "bridge_primary", "epoch": "epoch-pi-1", "events": [sample_event]},
+    )
+    assert status == 200
+    assert ack["accepted_event_ids"] == ["evt_pi_001"]
+
+    status, pending = _request(
+        pi_server["base"],
+        "GET",
+        f"{device_path}?limit=10",
+        token=pi_server["device_token"],
+    )
+    assert status == 200
+    assert len(pending["items"]) == 1
+    assert pending["items"][0]["device_id"] == pi_server["device_id"]
+    assert pending["items"][0]["delivery_id"] == "dlv_evt_pi_001"
+
+    status, wrong = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/devices/other_device/notifications/pending",
+        token=pi_server["device_token"],
+    )
+    assert status == 403
+    assert wrong["error"]["code"] == "forbidden"

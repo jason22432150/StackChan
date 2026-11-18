@@ -203,6 +203,43 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /v1/devices/{deviceId}/notifications/pending:
+    get:
+      operationId: listDevicePendingNotifications
+      summary: Device-scoped pending NotificationIntent pull (TTL applied; read-only)
+      tags: [Devices]
+      x-required-scopes: [device:stream]
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationIntent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /v1/deliveries/{deliveryId}/receipts:
     post:
       operationId: submitReceipt

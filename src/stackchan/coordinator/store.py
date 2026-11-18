@@ -701,26 +701,44 @@ class CoordinatorStore:
         )
         return True
 
-    def list_pending_notifications(self, *, limit: int = 50) -> list[dict[str, Any]]:
+    def list_pending_notifications(
+        self, *, limit: int = 50, device_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         列出未過期 pending（優先級高者在前，同優先級 FIFO）。
-        回傳可再組成 NotificationIntent 的摘要列。
+        可選依 device_id 篩選；回傳可再組成 NotificationIntent 的摘要列。
         """
         if not 1 <= limit <= 100:
             raise CoordinatorStoreError("limit 必須在 1..100")
         self.expire_pending_notifications()
-        rows = self._conn.execute(
-            """
-            SELECT delivery_id, notification_id, device_id, event_ids_json, priority,
-                   policy_version, generation, expires_at, presentation_policy_json,
-                   presentation_profile, created_at
-            FROM pending_notifications
-            WHERE status = 'pending'
-            ORDER BY priority DESC, created_at ASC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        if device_id is None:
+            rows = self._conn.execute(
+                """
+                SELECT delivery_id, notification_id, device_id, event_ids_json, priority,
+                       policy_version, generation, expires_at, presentation_policy_json,
+                       presentation_profile, created_at
+                FROM pending_notifications
+                WHERE status = 'pending'
+                ORDER BY priority DESC, created_at ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            if not str(device_id).strip():
+                raise CoordinatorStoreError("device_id 不可為空")
+            rows = self._conn.execute(
+                """
+                SELECT delivery_id, notification_id, device_id, event_ids_json, priority,
+                       policy_version, generation, expires_at, presentation_policy_json,
+                       presentation_profile, created_at
+                FROM pending_notifications
+                WHERE status = 'pending' AND device_id = ?
+                ORDER BY priority DESC, created_at ASC
+                LIMIT ?
+                """,
+                (str(device_id), limit),
+            ).fetchall()
         items: list[dict[str, Any]] = []
         for row in rows:
             items.append(

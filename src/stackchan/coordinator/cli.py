@@ -107,6 +107,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=os.environ.get("STACKCHAN_BRIDGE_TOKEN", ""),
         help="Bridge Bearer token（也可用環境變數）",
     )
+    serve_pi.add_argument(
+        "--device-id",
+        default=os.environ.get("STACKCHAN_DEVICE_ID", "cores3_primary"),
+        help="個人版單一 CoreS3 device_id（pending enqueue／device pull）",
+    )
+    serve_pi.add_argument(
+        "--device-token",
+        default=os.environ.get("STACKCHAN_DEVICE_TOKEN", ""),
+        help="CoreS3 Device Bearer token（選填；也可用環境變數）",
+    )
     serve_pi.add_argument("--cert", type=Path, default=None, help="可選 TLS 憑證 PEM")
     serve_pi.add_argument("--key", type=Path, default=None, help="可選 TLS 私鑰 PEM")
     serve = subcommands.add_parser("serve-device", help="serve CoreS3 policy and stream on one TLS port")
@@ -148,6 +158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         key = args.key or (
             Path(os.environ["STACKCHAN_TLS_KEY"]) if os.environ.get("STACKCHAN_TLS_KEY") else None
         )
+        device_token = args.device_token or os.environ.get("STACKCHAN_DEVICE_TOKEN", "")
         try:
             serve_pi_forever(
                 PiCoordinatorConfig(
@@ -158,6 +169,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     port=args.port,
                     tls_cert=cert,
                     tls_key=key,
+                    device_id=args.device_id,
+                    device_token=device_token,
                 )
             )
         except KeyboardInterrupt:

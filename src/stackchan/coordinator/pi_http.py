@@ -6,18 +6,21 @@ Raspberry Pi Coordinator：個人版最小 HTTP 服務。
 - GET  /dashboard            簡易唯讀管理頁（HTML；Token 由瀏覽器送出）
 - POST /v1/events/batch      Bridge 批次匯入（先寫入 SQLite 再 ACK）
 - GET  /v1/events            近期事件摘要（需 dashboard:read；不含 Prompt）
-- GET  /v1/notifications/pending  待派送通知佇列（TTL／優先）
+- GET  /v1/notifications/pending  管理頁待派送佇列（TTL／優先）
+- GET  /v1/devices/{id}/notifications/pending  裝置範圍 pull（device:stream）
 - GET  /v1/sync/status       查詢連續 ACK 游標與缺口
 
-刻意保持精簡：stdlib HTTP、單一 Bridge Token、可選 TLS。
+刻意保持精簡：stdlib HTTP、Bridge／可選 Device Token、可選 TLS。
 個人版：同一 Bridge Token 兼具 bridge:write／bridge:sync／dashboard:read
 （單管理員、單 Bridge）；管理頁事件列表僅回傳該 bridge_id 摘要。
-完整配對／CoreS3 WebSocket stream 不在本模組（佇列先落地供後續 stream 取用）。
+Device Token（選填）綁定單一 device_id，供 CoreS3 HTTP pull；完整配對／WebSocket
+stream 不在本模組。
 """
 
 from __future__ import annotations
 
 import json
+import re
 import ssl
 import threading
 from dataclasses import dataclass
@@ -36,6 +39,8 @@ from stackchan.sync.models import BatchInput
 
 load_route_requirements.cache_clear()
 
+_DEVICE_PENDING_PATH = re.compile(r"^/v1/devices/([^/]+)/notifications/pending$")
+
 
 @dataclass(frozen=True, slots=True)
 class PiCoordinatorConfig:
@@ -49,13 +54,30 @@ class PiCoordinatorConfig:
     tls_cert: Path | None = None
     tls_key: Path | None = None
     device_id: str = "cores3_primary"
+    device_token: str = ""
     policy_version: str = "personal-v1"
     generation: int = 1
     notify_ttl_seconds: int = 600
 
 
 def build_bridge_token_directory(*, bridge_id: str, bridge_token: str) -> TokenDirectory:
-    """建立個人版單一 Bridge Token 目錄。"""
+    """建立個人版單一 Bridge Token 目錄（相容舊呼叫）。"""
+    return build_personal_token_directory(
+        bridge_id=bridge_id,
+        bridge_token=bridge_token,
+        device_id="cores3_primary",
+        device_token="",
+    )
+
+
+def build_personal_token_directory(
+    *,
+    bridge_id: str,
+    bridge_token: str,
+    device_id: str,
+    device_token: str = "",
+) -> TokenDirectory:
+    """建立個人版 Bridge＋可選 Device Token 目錄。"""
     if not bridge_id.strip():
         raise ValueError("bridge_id 不可為空")
     if not bridge_token.strip():
@@ -69,6 +91,19 @@ def build_bridge_token_directory(*, bridge_id: str, bridge_token: str) -> TokenD
             scopes=frozenset({"bridge:write", "bridge:sync", "dashboard:read"}),
         ),
     )
+    if device_token.strip():
+        if not device_id.strip():
+            raise ValueError("設定 device_token 時 device_id 不可為空")
+        if device_token.strip() == bridge_token.strip():
+            raise ValueError("device_token 不可與 bridge_token 相同")
+        tokens.issue(
+            device_token.strip(),
+            Principal(
+                subject_id=device_id.strip(),
+                subject_type="device",
+                scopes=frozenset({"device:policy", "device:receipt", "device:stream"}),
+            ),
+        )
     return tokens
 
 
@@ -123,6 +158,14 @@ class PiCoordinatorApp:
                     return status, payload, "application/json"
                 if method == "GET" and path == "/v1/notifications/pending":
                     status, payload = self._list_pending_notifications(authorization_header, query)
+                    return status, payload, "application/json"
+                device_pending = _DEVICE_PENDING_PATH.match(path)
+                if method == "GET" and device_pending is not None:
+                    status, payload = self._list_device_pending_notifications(
+                        authorization_header,
+                        device_pending.group(1),
+                        query,
+                    )
                     return status, payload, "application/json"
                 if method == "GET" and path == "/v1/sync/status":
                     status, payload = self._sync_status(authorization_header, query)
@@ -228,6 +271,33 @@ class PiCoordinatorApp:
         items = self.store.list_pending_notifications(limit=limit)
         return 200, {"items": items}
 
+    def _list_device_pending_notifications(
+        self,
+        authorization_header: str | None,
+        device_id: str,
+        query: dict[str, list[str]],
+    ) -> tuple[int, dict[str, Any]]:
+        """裝置範圍 pending pull：principal 必須綁定同一 device_id。"""
+        path = f"/v1/devices/{device_id}/notifications/pending"
+        principal = self.api.gate.authorize("GET", path, authorization_header)
+        if principal is None:
+            raise AuthorizationError("unauthorized", "缺少或無效的 Bearer token", http_status=401)
+        if principal.subject_type != "device" or principal.subject_id != device_id:
+            raise AuthorizationError(
+                "forbidden",
+                "token 與 device_id 不符",
+                http_status=403,
+            )
+        raw_limit = (query.get("limit") or ["50"])[0]
+        try:
+            limit = int(raw_limit)
+        except ValueError as exc:
+            raise ValueError("limit 必須為整數") from exc
+        if not 1 <= limit <= 100:
+            raise ValueError("limit 必須在 1..100")
+        items = self.store.list_pending_notifications(limit=limit, device_id=device_id)
+        return 200, {"items": items}
+
     def _sync_status(
         self,
         authorization_header: str | None,
@@ -312,7 +382,12 @@ def create_pi_server(config: PiCoordinatorConfig) -> tuple[ThreadingHTTPServer, 
     """建立已綁定的 Pi Coordinator HTTP server（呼叫端負責 serve_forever／shutdown）。"""
     config.db_path.parent.mkdir(parents=True, exist_ok=True)
     store = CoordinatorStore(config.db_path, check_same_thread=False)
-    tokens = build_bridge_token_directory(bridge_id=config.bridge_id, bridge_token=config.bridge_token)
+    tokens = build_personal_token_directory(
+        bridge_id=config.bridge_id,
+        bridge_token=config.bridge_token,
+        device_id=config.device_id,
+        device_token=config.device_token,
+    )
     api = CoordinatorSyncApi(store, ApiGate(tokens))
     app = PiCoordinatorApp(
         store,
