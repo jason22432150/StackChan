@@ -48,7 +48,8 @@ def test_outbox_strips_prompt_and_assistant_message(tmp_path: Path) -> None:
     assert "api_key" not in outcome.event.get("source_payload", {})
     assert "password" not in outcome.event.get("source_payload", {})
     assert service.status()["delivers_to_cores3"] is False
-    assert service.status()["delivers_to_coordinator"] is False
+    assert service.status()["auto_delivers_to_coordinator"] is False
+    assert service.status()["supports_coordinator_sync"] is True
     store.close()
 
 

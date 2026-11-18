@@ -8,6 +8,7 @@
   stackchan bridge ingest-hook --adapter codex --file PAYLOAD.json
   stackchan bridge ingest-hook --adapter codex --stdin
   stackchan bridge ingest-hook --adapter codex --argv-json '...'
+  stackchan bridge sync --coordinator-url URL --token TOKEN
   stackchan bridge print-codex-setup
   stackchan bridge adapters
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -25,6 +27,7 @@ from stackchan.adapters import AdapterError, get_adapter
 from stackchan.bridge.paths import default_bridge_db_path, default_bridge_id
 from stackchan.bridge.service import BridgeService, dump_json
 from stackchan.bridge.store import BridgeStore, BridgeStoreError
+from stackchan.sync import BridgeSyncClient, HttpSyncTransport, SyncTransportError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,6 +71,45 @@ def build_parser() -> argparse.ArgumentParser:
         "--argv-json",
         metavar="JSON",
         help="自命令列參數讀取 JSON（Codex legacy notify）",
+    )
+
+    sync_p = sub.add_parser(
+        "sync",
+        help="將 pending Outbox 上傳至 Pi Coordinator（失敗則保留重試；不直送 CoreS3）",
+    )
+    _add_common_db(sync_p)
+    sync_p.add_argument(
+        "--coordinator-url",
+        default=os.environ.get("STACKCHAN_COORDINATOR_URL", ""),
+        help="Pi Coordinator 根 URL（也可用 STACKCHAN_COORDINATOR_URL）",
+    )
+    sync_p.add_argument(
+        "--token",
+        default=os.environ.get("STACKCHAN_BRIDGE_TOKEN", ""),
+        help="Bridge Bearer Token（也可用 STACKCHAN_BRIDGE_TOKEN）",
+    )
+    sync_p.add_argument(
+        "--batch-limit",
+        type=int,
+        default=100,
+        help="單次最多上傳事件數（1..100）",
+    )
+    sync_p.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="HTTP 逾時秒數",
+    )
+    sync_p.add_argument(
+        "--ca-file",
+        type=Path,
+        default=None,
+        help="驗證 Pi TLS 用的 CA PEM（建議正式環境使用）",
+    )
+    sync_p.add_argument(
+        "--insecure",
+        action="store_true",
+        help="略過 TLS 憑證驗證（僅限信任 LAN 除錯；正式環境勿用）",
     )
 
     setup_p = sub.add_parser(
@@ -125,11 +167,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_pending(args)
         if args.command == "ingest-hook":
             return _cmd_ingest(args)
+        if args.command == "sync":
+            return _cmd_sync(args)
         if args.command == "print-codex-setup":
             return _cmd_print_codex_setup(args)
         parser.error(f"未知命令: {args.command}")
         return 2
-    except (AdapterError, BridgeStoreError, OSError, json.JSONDecodeError, ValueError) as exc:
+    except (AdapterError, BridgeStoreError, SyncTransportError, OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -198,6 +242,54 @@ def _cmd_pending(args: argparse.Namespace) -> int:
             )
         )
     return 0
+
+
+def _cmd_sync(args: argparse.Namespace) -> int:
+    url = (args.coordinator_url or "").strip()
+    token = (args.token or "").strip()
+    if not url:
+        raise ValueError("必須提供 --coordinator-url 或 STACKCHAN_COORDINATOR_URL")
+    if not token:
+        raise ValueError("必須提供 --token 或 STACKCHAN_BRIDGE_TOKEN")
+    if not 1 <= args.batch_limit <= 100:
+        raise ValueError("--batch-limit 必須在 1..100")
+    if args.timeout <= 0:
+        raise ValueError("--timeout 必須 > 0")
+
+    db = _resolve_db(args)
+    bridge_id = _resolve_bridge_id(args)
+    transport = HttpSyncTransport(
+        base_url=url,
+        timeout_seconds=args.timeout,
+        ca_file=args.ca_file,
+        insecure_skip_verify=bool(args.insecure),
+    )
+    with BridgeStore(db) as store:
+        client = BridgeSyncClient(
+            store,
+            bridge_id=bridge_id,
+            transport=transport,
+            authorization_header=f"Bearer {token}",
+            batch_limit=args.batch_limit,
+        )
+        result = client.sync_once()
+
+    payload: dict[str, Any] = {
+        "ok": result.error is None,
+        "attempted": result.attempted,
+        "uploaded_event_ids": result.uploaded_event_ids,
+        "pending_remaining": result.pending_remaining,
+        "contiguous_acked_sequence": result.contiguous_acked_sequence,
+        "error": result.error,
+        "db": str(db),
+        "bridge_id": bridge_id,
+        "coordinator_url": url,
+        "delivers_to_cores3": False,
+    }
+    if result.ack is not None:
+        payload["ack"] = result.ack.to_dict()
+    print(dump_json(payload))
+    return 0 if result.error is None else 1
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:

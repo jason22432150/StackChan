@@ -14,6 +14,7 @@ from stackchan.sync.coordinator_api import (
     CoordinatorSyncApi,
     SyncFailClosedError,
 )
+from stackchan.sync.http_transport import HttpSyncTransport
 from stackchan.sync.models import BatchAck, BatchInput
 from stackchan.sync.transport import InMemorySyncTransport, SyncTransportError
 
@@ -26,6 +27,7 @@ __all__ = [
     "ClockSkewReport",
     "CoordinatorMode",
     "CoordinatorSyncApi",
+    "HttpSyncTransport",
     "InMemorySyncTransport",
     "SyncFailClosedError",
     "SyncRoundResult",

@@ -125,9 +125,10 @@ class BridgeService:
                 self.bridge_id,
                 settings["current_epoch"],
             ),
-            # 個人版不變式：Bridge 只保留本機 Outbox，絕不直送 CoreS3
+            # 個人版不變式：絕不直送 CoreS3；對 Coordinator 需顯式執行 bridge sync
             "delivers_to_cores3": False,
-            "delivers_to_coordinator": False,
+            "auto_delivers_to_coordinator": False,
+            "supports_coordinator_sync": True,
         }
 
     def list_pending_summaries(self, *, limit: int = 50) -> list[dict[str, Any]]:

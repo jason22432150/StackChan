@@ -1,7 +1,8 @@
 """
 同步傳輸抽象與可故障注入的記憶體 Transport（測試用）。
 
-真實 HTTPS 部署屬後續；此層驗證 At-Least-Once＋冪等語意。
+真實 HTTP／HTTPS 見 `http_transport.HttpSyncTransport`。
+此層驗證 At-Least-Once＋冪等語意。
 """
 
 from __future__ import annotations
