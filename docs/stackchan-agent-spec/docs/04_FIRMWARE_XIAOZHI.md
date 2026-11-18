@@ -137,6 +137,22 @@ SETUP → Agent Notifications → Pair notifications 提供本機配對頁面。
 
 配對頁面使用建置設定 `STACKCHAN_AGENT_COORDINATOR_HOST`、`STACKCHAN_AGENT_PAIRING_PORT`、`STACKCHAN_AGENT_STREAM_PORT`、`STACKCHAN_AGENT_COORDINATOR_CA_PEM` 與既有 generation。主機與 CA 預設空白，須填入受信任的 Coordinator 設定才能配對。CA 欄位可用字面上的 `\n` 表示 PEM 換行。兩個連接埠預設分別為 9443 與 8443，可依 listener 設定調整。配對請求只進入背景任務，頁面 update 在既有 LVGL lock 下讀取狀態及更新元件。完整映像已於上述離線建置驗證，實機顯示與觸控操作仍待驗收。
 
+### P2-04 隔離測試環境（2026-11-18）
+
+使用者授權建立本機隔離測試環境，檔案位於 `firmware/build/p204-bench-private/`；新資料夾已移除繼承 ACL，僅本機使用者及 SYSTEM 具完整存取權。`git check-ignore` 確認憑證、私鑰、資料庫、環境設定及建置設定均不納入 Git。檔案包含 `ca.pem`／`ca-key.pem`、`server.pem`／`server-key.pem`、`security.sqlite`、`credentials.json`、`env.ps1`、兩份啟動腳本、`sdkconfig.defaults` 及不含機密的 `validation.json`。不可將整個目錄附到 issue、PR 或診斷匯出。
+
+本輪網卡唯讀盤點顯示 Coordinator Wi-Fi 為 `10.12.245.137/24`，目標 CoreS3 為使用者提供的 `10.12.245.29`。測試伺服器憑證包含 `10.12.245.137` 與 `127.0.0.1`；以 SSL MemoryBIO 完成兩個名稱的 CA／金鑰／主機名驗證，未連線 LAN。測試管理員僅具 `admin:pairing`；政策為 `p204-bench`／`v1`／private，管理員 grant 與政策均於 `2026-11-18T14:22:52Z`（台北 22:22:52）到期。到期後不能沿用本次正向驗收條件，須明確重新準備測試授權與政策。
+
+已使用這組實際檔案的受保護資料庫副本，在真實 loopback TLS 驗證 synthetic device 的 start → 人工確認 CLI → complete → policy GET → WebSocket heartbeat（generation 1）。原始測試資料庫保持乾淨。此證據是本機服務驗證，並不代表 CoreS3 配對成功。
+
+通知映像建置目錄為 `firmware/build/p204-bench/`，使用既有 defaults、通知診斷 profile 與隔離目錄的第三份 defaults；不修改產品預設設定。第三份設定指定 Coordinator `10.12.245.137`、配對埠 9443、串流埠 8443 及本次 CA。產生 Kconfig 字串時，須先將 PEM 換行改為字面反斜線 n，再作字串跳脫；單層跳脫會被 Kconfig 讀成字母 n。本輪曾因此停止首次建置並修正。重新產生後，已確認 SDKCONFIG 的 CA 經產品使用的換行解碼後與原始 CA 逐字相同，且可載入為可信 PEM。通知／baseline 啟用，generation 1；NVS 加密、Flash Encryption 與 Secure Boot 關閉。
+
+`start-pairing.ps1` 與 `start-stream.ps1` 已完成 PowerShell 語法檢查，尚未執行。準備的 LAN 範圍是 `10.12.245.137:9443`（配對）及 `:8443`（policy／stream），均只接受裝置來源 `10.12.245.29`；管理員確認固定 `127.0.0.1:9444`。腳本以個別前景程序執行，結束時各按 Ctrl+C；不建立背景服務或防火牆規則。此處僅記錄可供審查的設定，尚未授權／驗證實際 LAN 綁定、CoreS3 流程或燒錄。實機前須重新確認位址、授權期限與未占用連接埠；燒錄的分割區及回復方式需另外確認，不因建立測試環境而取得寫入裝置授權。
+
+ESP-IDF 6.1 隔離映像完整建置 2,529 步通過；`stack-chan.bin` 為 `0x3a71a0`（3,830,176 bytes），最小 app 分割區剩 `0x148e60`（26%），SHA-256 `1F1DA41ACFBA43A6CC8CD45C4BC77AB15AA4E9B66E626A992BD4B695E0105D27`。esptool checksum／validation hash 有效；ELF 的配對頁面、client、請求／狀態、begin／finish 及 Xiaozhi `Application::Run`／`AudioService::Start` 八項符號檢查通過。映像包含預期的公開 CA 與 host，不包含本輪產生的兩份私鑰、pepper 或管理員 token。二進位分割表與先前通知映像逐位元組一致（SHA-256 `48DA0866F56D9D8EB1FE786412984D8F1A4A01B3F13F965621FCB916761E1A4B`），離線檢查 NVS 仍為 `0x9000`／`0x4000`。
+
+本輪未修改產品程式碼、依賴清單或 lockfile。Xiaozhi HEAD 仍為 `49b4380b3faa0ceadd28a3e78aaf0f311c46c57e`，其追蹤檔差異經暫存 index 套用比對，完全等於既有 `xiaozhi-esp32.patch`。全套 pytest 362/362、host CTest 31/31 重驗通過。既有元件的 Kconfig、私有 include 與未使用變數警告仍存在，不宣稱零警告；實際 CoreS3 配對、SNTP、task heap／stack、重啟及 Xiaozhi 共存均未驗收，P2-04 保留未完成。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。
