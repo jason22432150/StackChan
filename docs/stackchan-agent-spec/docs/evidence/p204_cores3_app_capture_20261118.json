@@ -1,0 +1,121 @@
+{
+  "timestamp_utc": "2026-11-18T03:35:24.292546+00:00",
+  "rom_mac_matches_usb": true,
+  "selection": {
+    "entries": [
+      {
+        "sequence": 1,
+        "state": 2,
+        "crc_valid": true,
+        "sdk_selectable": true
+      },
+      {
+        "sequence": 4294967295,
+        "state": 4294967295,
+        "crc_valid": false,
+        "sdk_selectable": false
+      }
+    ],
+    "selected_entry": 0,
+    "slot": 0,
+    "basis": "highest_valid_sequence",
+    "stable_metadata": true
+  },
+  "selection_is_runtime_api_confirmation": false,
+  "selected_partition": {
+    "type": 0,
+    "subtype": 16,
+    "offset": 131072,
+    "size": 5177344,
+    "name": "ota_0",
+    "flags": 0
+  },
+  "other_header_magic": [
+    233,
+    255
+  ],
+  "app_backup_copies": 2,
+  "full_partition_backup_bytes": 5177344,
+  "full_partition_backup_sha256": "7a022d4863ff602923159324905a3ae5440d0ebbcc46d8e4726753f743fc999e",
+  "original_image_bytes": 3796048,
+  "original_image_sha256": "fe1af488d813fda1995edadb50e4927f07910cef118943324b795021adace41f",
+  "original_image_checksum_valid": true,
+  "original_image_digest_valid": true,
+  "original_app": {
+    "version": "1.6.2",
+    "project": "stack-chan",
+    "idf_version": "v6.1",
+    "build_date": "Nov 17 2026",
+    "build_time": "11:06:12",
+    "elf_sha256": "da654d88f9c208f3bfb11a765de3272e24147aacf85a4bd3776ce5e93ab68a34",
+    "secure_version": 0
+  },
+  "current_assets_match_new_image": false,
+  "assets_compared_bytes": 2371410,
+  "nvs_backup_sha256": "52a1637f14601ff7b912ea9512dfb38381ab14a2d76f0e3f47e4324cb054e59b",
+  "nvs_backup_copies": 2,
+  "candidate_sha256": "9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b",
+  "candidate_image_bytes": 3830176,
+  "proposed_write_offset": "0x20000",
+  "proposed_erase_size": "0x3a8000",
+  "proposed_erase_end_exclusive": "0x3c8000",
+  "before": "no-reset",
+  "after": "no-reset",
+  "stub_uploaded": true,
+  "flash_written": false,
+  "ram_stub_read_only_backup_approved": true,
+  "large_read_baud": 460800,
+  "large_read_timeout_seconds": 120,
+  "rollback_write_tested": false,
+  "normal_boot_restored": true,
+  "large_read_mode": "whole requested partition per read-flash command with approved RAM stub",
+  "normal_boot_evidence": "Operator confirmed original screen and working touch after reset",
+  "assets_comparison": {
+    "device": {
+      "files": 42,
+      "payload_bytes": 2371282,
+      "checksum_valid": true
+    },
+    "candidate": {
+      "files": 42,
+      "payload_bytes": 2371398,
+      "checksum_valid": true
+    },
+    "file_names_and_dimensions_equal": true,
+    "byte_identical_files": 40,
+    "changed_files": [
+      "index.json",
+      "srmodels.bin"
+    ],
+    "index_equal_after_collection_sort": true,
+    "model_files_byte_identical": true,
+    "model_file_count": 3,
+    "model_file_order_differs": true,
+    "model_files": {
+      "wn9l_histackchan_tts3/wn9_data": {
+        "bytes": 291201,
+        "sha256": "bf982eb08ae778b53183ff4fe6f9ed5a4df5d4b5d21600ed4a879048bf1493fe"
+      },
+      "wn9l_histackchan_tts3/_MODEL_INFO_": {
+        "bytes": 46,
+        "sha256": "6fdf1352ff1887f86d678f5569756787a6a97454a0e42fcd86572f9392825ef7"
+      },
+      "wn9l_histackchan_tts3/wn9_index": {
+        "bytes": 1200,
+        "sha256": "1eedc9ede6a99e279f7a0e77fb9f4a8f1fee366a21fa082d0a09515f9076df34"
+      }
+    },
+    "scope": "Offline structural comparison only; no new-firmware UI or audio runtime validation."
+  },
+  "chip": "ESP32-S3",
+  "operator_confirmed_original_screen_and_touch": true,
+  "flash_or_efuse_write_commands_executed": false,
+  "no_stub_attempts": "Whole app read timed out at 45 seconds; 1 MiB chunk timed out at 120 seconds. Retained incomplete private captures. Retried only after explicit RAM stub approval.",
+  "pending_validation": [
+    "Runtime running-partition API confirmation",
+    "App and NVS restore write test",
+    "New firmware CoreS3 positive pairing, rejection and re-pairing after reboot",
+    "New firmware Xiaozhi voice, network, resource and coexistence checks"
+  ],
+  "proposed_app_only_write_is_authorized": false
+}

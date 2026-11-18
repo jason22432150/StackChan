@@ -225,3 +225,16 @@ P2-09：`NotificationAudioGate`＋`kMvpAgentAudioCapability=A0` 凍結純 UI；�
 ## 8. 實機測試 Gate
 
 必驗證：原廠 Xiaozhi 喚醒／對話／重進；多次同時 Agent 通知；Coordinator 突然斷線時清屏與音訊取消；Generation 舊回呼；LVGL Lock 占用時間；Servo 安全停止／搖晃 IMU；SD 缺失／損壞；PSRAM 峰值；看門狗；至少一次長時間穩定性執行，測試時長與合格線由 Phase 0 訂立。
+
+
+### P2-04 OTA metadata 與現行 app 唯讀備份（2026-11-18）
+
+上一輪 NVS 備份／正常畫面恢復已重驗並提交 `8e8b66d`（pytest 362/362、host CTest 31/31）。本輪依操作員確認的 ROM 模式重新核對 COM8 裝置身分及分割表；新增 `firmware/verify_ota_selection.py`，依本機 ESP-IDF 6.1 的 `bootloader_common_loader.c` 核對序號 CRC、有效狀態、最大序號與相同序號取第一筆規則。16 個測試涵蓋已知 CRC、雙份選擇、損壞／無效紀錄、全擦除 fallback、過渡狀態與錯誤輸入；完整 pytest 378/378 通過。解析器不模擬 anti-rollback、映像檢查或 bootloader fallback scan，輸出不等於執行期 running-partition API 確認。
+
+兩份獨立 otadata 相同：第一筆 seq=1、state=VALID、CRC 正確，第二筆為擦除紀錄。metadata 選擇 ota_0，offset `0x20000`、size `0x4f0000`；ota_1 僅確認首個 header 為擦除狀態，未驗證整個分割區。no-stub 的完整 app 讀取及 1 MiB 分塊先後超時，保留不完整資料；取得使用者明確追加批准後，才改用 esptool 官方 RAM stub 的 `read-flash`，每次讀取一個完整指定範圍。stub 僅在 RAM，重啟後消失；未執行 Flash／eFuse 寫入命令。
+
+完整 ota_0 的兩份獨立備份各 5,177,344 bytes，SHA-256 均為 `7a022d4863ff602923159324905a3ae5440d0ebbcc46d8e4726753f743fc999e`。esptool 驗證原 app checksum 與內附 SHA-256 均通過；原始映像長度 3,796,048 bytes、版本 1.6.2、ESP-IDF v6.1。另取兩份 NVS，摘要與上一輪一致。備份與原始映像只存放 Git 忽略的受限私人目錄，公開摘要見 `evidence/p204_cores3_app_capture_20261118.json`。備份完整性不代表已實際回復成功。
+
+Assets 原始位元組與 9445 建置不同，因此另依 `assets.cc` 的 12-byte header／44-byte entry／ZZ magic 解析、核對 checksum 與範圍：兩邊均 42 個檔案、檔名與尺寸相同；40 個內容完全相同，`index.json` 只有換行與 emoji／extra_files 順序差異，正規化排序後物件相同。依 ESP-SR `model/pack_model.py` 格式比對 `srmodels.bin`，三個模型檔內容完全相同，只有封裝順序差異。這是保留原 Assets 的離線證據，新 app 的 UI／喚醒／音訊仍須實機回歸。
+
+恢復開機 reset 後，操作員確認原畫面與觸控恢復，未將語音或網路視為通過。本輪沒有燒錄；候選 app 仍為 SHA-256 `9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b`，若後續另獲批准，以 app-only 寫入 `0x20000`，預計 sector 擦除範圍為 `[0x20000, 0x3c8000)`，不應使用完整 `idf.py flash`。bootloader、分割表、otadata、Assets、NVS 不在該寫入範圍；但新 app 執行期的原廠 NVS 初始化仍可能在 NO_FREE_PAGES／NEW_VERSION 時清除 NVS，不能保證運行後絕不改動 NVS。實際寫入與回復步驟仍須另行批准、校驗與測試；P2-04 保留未完成。
