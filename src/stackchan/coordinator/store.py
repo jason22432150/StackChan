@@ -28,7 +28,7 @@ from stackchan.contracts import (
     validate_presentation_receipt,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class CoordinatorStoreError(ValueError):
@@ -139,6 +139,8 @@ class CoordinatorStore:
             self._apply_migration_1()
         if self.schema_version() < 2:
             self._apply_migration_2()
+        if self.schema_version() < 3:
+            self._apply_migration_3()
 
     def _apply_migration_1(self) -> None:
         # executescript 會自行 commit，不可包在外層 BEGIN/COMMIT
@@ -289,6 +291,43 @@ class CoordinatorStore:
         try:
             self._conn.execute(
                 "INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)",
+                (_utc_now(),),
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def _apply_migration_3(self) -> None:
+        """個人版待派送通知佇列（FIFO／優先／TTL）。"""
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS pending_notifications (
+                delivery_id TEXT PRIMARY KEY,
+                notification_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                event_ids_json TEXT NOT NULL,
+                priority INTEGER NOT NULL CHECK(priority >= 0 AND priority <= 100),
+                policy_version TEXT NOT NULL,
+                generation INTEGER NOT NULL CHECK(generation >= 0),
+                expires_at TEXT NOT NULL,
+                presentation_policy_json TEXT NOT NULL,
+                presentation_profile TEXT,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending', 'expired', 'cancelled')),
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pending_notifications_status_pri
+                ON pending_notifications(status, priority DESC, created_at ASC);
+            CREATE INDEX IF NOT EXISTS idx_pending_notifications_expires
+                ON pending_notifications(status, expires_at);
+            """
+        )
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (3, ?)",
                 (_utc_now(),),
             )
             self._conn.execute("COMMIT")
@@ -602,6 +641,105 @@ class CoordinatorStore:
             }
             for row in rows
         ]
+
+    def expire_pending_notifications(self, *, now_iso: str | None = None) -> int:
+        """將過期 pending 標為 expired；回傳更新筆數。"""
+        now = now_iso or _utc_now()
+        cur = self._conn.execute(
+            """
+            UPDATE pending_notifications
+            SET status = 'expired'
+            WHERE status = 'pending' AND expires_at <= ?
+            """,
+            (now,),
+        )
+        return int(cur.rowcount)
+
+    def enqueue_pending_notification(self, intent: dict[str, Any]) -> bool:
+        """
+        寫入待派送通知。delivery_id 已存在則視為去重（回傳 False）。
+        呼叫端應先 validate_notification_intent。
+        """
+        delivery_id = str(intent["delivery_id"])
+        self.expire_pending_notifications()
+        existing = self._conn.execute(
+            "SELECT delivery_id, status FROM pending_notifications WHERE delivery_id = ?",
+            (delivery_id,),
+        ).fetchone()
+        if existing is not None:
+            return False
+
+        pending_count = self._conn.execute(
+            "SELECT COUNT(*) AS c FROM pending_notifications WHERE status = 'pending'"
+        ).fetchone()["c"]
+        if int(pending_count) >= 64:
+            raise CoordinatorStoreError("pending notification 佇列已滿")
+
+        self.ensure_device(str(intent["device_id"]))
+        self.ensure_delivery(delivery_id, str(intent["device_id"]), int(intent["generation"]))
+        self._conn.execute(
+            """
+            INSERT INTO pending_notifications(
+                delivery_id, notification_id, device_id, event_ids_json, priority,
+                policy_version, generation, expires_at, presentation_policy_json,
+                presentation_profile, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (
+                delivery_id,
+                str(intent["notification_id"]),
+                str(intent["device_id"]),
+                json.dumps(list(intent["event_ids"]), ensure_ascii=True, separators=(",", ":")),
+                int(intent["priority"]),
+                str(intent["policy_version"]),
+                int(intent["generation"]),
+                str(intent["expires_at"]),
+                json.dumps(intent["presentation_policy"], ensure_ascii=True, separators=(",", ":")),
+                intent.get("presentation_profile"),
+                _utc_now(),
+            ),
+        )
+        return True
+
+    def list_pending_notifications(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """
+        列出未過期 pending（優先級高者在前，同優先級 FIFO）。
+        回傳可再組成 NotificationIntent 的摘要列。
+        """
+        if not 1 <= limit <= 100:
+            raise CoordinatorStoreError("limit 必須在 1..100")
+        self.expire_pending_notifications()
+        rows = self._conn.execute(
+            """
+            SELECT delivery_id, notification_id, device_id, event_ids_json, priority,
+                   policy_version, generation, expires_at, presentation_policy_json,
+                   presentation_profile, created_at
+            FROM pending_notifications
+            WHERE status = 'pending'
+            ORDER BY priority DESC, created_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            items.append(
+                {
+                    "schema_version": "0.1",
+                    "notification_id": str(row["notification_id"]),
+                    "delivery_id": str(row["delivery_id"]),
+                    "device_id": str(row["device_id"]),
+                    "event_ids": json.loads(row["event_ids_json"]),
+                    "priority": int(row["priority"]),
+                    "policy_version": str(row["policy_version"]),
+                    "generation": int(row["generation"]),
+                    "expires_at": str(row["expires_at"]),
+                    "presentation_policy": json.loads(row["presentation_policy_json"]),
+                    "presentation_profile": row["presentation_profile"],
+                    "created_at": str(row["created_at"]),
+                }
+            )
+        return items
 
     def record_task_conflict(
         self,

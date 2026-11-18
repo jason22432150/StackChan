@@ -6,12 +6,13 @@ Raspberry Pi Coordinator：個人版最小 HTTP 服務。
 - GET  /dashboard            簡易唯讀管理頁（HTML；Token 由瀏覽器送出）
 - POST /v1/events/batch      Bridge 批次匯入（先寫入 SQLite 再 ACK）
 - GET  /v1/events            近期事件摘要（需 dashboard:read；不含 Prompt）
+- GET  /v1/notifications/pending  待派送通知佇列（TTL／優先）
 - GET  /v1/sync/status       查詢連續 ACK 游標與缺口
 
 刻意保持精簡：stdlib HTTP、單一 Bridge Token、可選 TLS。
 個人版：同一 Bridge Token 兼具 bridge:write／bridge:sync／dashboard:read
 （單管理員、單 Bridge）；管理頁事件列表僅回傳該 bridge_id 摘要。
-完整配對／CoreS3 stream 不在本模組。
+完整配對／CoreS3 WebSocket stream 不在本模組（佇列先落地供後續 stream 取用）。
 """
 
 from __future__ import annotations
@@ -25,12 +26,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from stackchan.contracts import AuthorizationError, Principal
-from stackchan.contracts.authz import ApiGate, TokenDirectory
+from stackchan.contracts import AuthorizationError, ContractValidationError, Principal
+from stackchan.contracts.authz import ApiGate, TokenDirectory, load_route_requirements
 from stackchan.coordinator import CoordinatorStore, CoordinatorStoreError
+from stackchan.coordinator.personal_notify import build_personal_notification_intent
 from stackchan.coordinator.pi_dashboard import render_dashboard_html, summarize_event_row
 from stackchan.sync.coordinator_api import CoordinatorSyncApi, SyncFailClosedError
 from stackchan.sync.models import BatchInput
+
+load_route_requirements.cache_clear()
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +48,10 @@ class PiCoordinatorConfig:
     port: int = 8443
     tls_cert: Path | None = None
     tls_key: Path | None = None
+    device_id: str = "cores3_primary"
+    policy_version: str = "personal-v1"
+    generation: int = 1
+    notify_ttl_seconds: int = 600
 
 
 def build_bridge_token_directory(*, bridge_id: str, bridge_token: str) -> TokenDirectory:
@@ -67,9 +75,22 @@ def build_bridge_token_directory(*, bridge_id: str, bridge_token: str) -> TokenD
 class PiCoordinatorApp:
     """把 CoordinatorSyncApi 接到 stdlib HTTP。"""
 
-    def __init__(self, store: CoordinatorStore, api: CoordinatorSyncApi) -> None:
+    def __init__(
+        self,
+        store: CoordinatorStore,
+        api: CoordinatorSyncApi,
+        *,
+        device_id: str = "cores3_primary",
+        policy_version: str = "personal-v1",
+        generation: int = 1,
+        notify_ttl_seconds: int = 600,
+    ) -> None:
         self.store = store
         self.api = api
+        self.device_id = device_id
+        self.policy_version = policy_version
+        self.generation = generation
+        self.notify_ttl_seconds = notify_ttl_seconds
         self._lock = threading.RLock()
 
     def handle(
@@ -99,6 +120,9 @@ class PiCoordinatorApp:
                     return status, payload, "application/json"
                 if method == "GET" and path == "/v1/events":
                     status, payload = self._list_events(authorization_header, query)
+                    return status, payload, "application/json"
+                if method == "GET" and path == "/v1/notifications/pending":
+                    status, payload = self._list_pending_notifications(authorization_header, query)
                     return status, payload, "application/json"
                 if method == "GET" and path == "/v1/sync/status":
                     status, payload = self._sync_status(authorization_header, query)
@@ -146,7 +170,26 @@ class PiCoordinatorApp:
             events=list(payload.get("events") or []),
         )
         ack = self.api.submit_event_batch(batch, authorization_header=authorization_header)
-        # 規格：先可靠儲存再確認 Bridge
+        # 規格：先可靠儲存再確認 Bridge；接受的事件進入個人版待派送佇列。
+        accepted = set(ack.accepted_event_ids)
+        for raw in batch.events:
+            if not isinstance(raw, dict):
+                continue
+            event_id = str(raw.get("event_id", ""))
+            if event_id not in accepted:
+                continue
+            try:
+                intent = build_personal_notification_intent(
+                    raw,
+                    device_id=self.device_id,
+                    policy_version=self.policy_version,
+                    generation=self.generation,
+                    ttl_seconds=self.notify_ttl_seconds,
+                )
+                self.store.enqueue_pending_notification(intent)
+            except (ValueError, CoordinatorStoreError, ContractValidationError, KeyError, TypeError):
+                # 佇列失敗不回滾已 ACK 的 Bridge 寫入；下輪可由管理頁／重送策略補。
+                continue
         return 200, ack.to_dict()
 
     def _list_events(
@@ -170,6 +213,20 @@ class PiCoordinatorApp:
         rows = self.store.list_recent_event_summaries(limit=limit, bridge_id=scope_bridge)
         items = [summarize_event_row(row) for row in rows]
         return 200, {"items": items, "next_cursor": None}
+
+    def _list_pending_notifications(
+        self,
+        authorization_header: str | None,
+        query: dict[str, list[str]],
+    ) -> tuple[int, dict[str, Any]]:
+        self.api.gate.authorize("GET", "/v1/notifications/pending", authorization_header)
+        raw_limit = (query.get("limit") or ["50"])[0]
+        try:
+            limit = int(raw_limit)
+        except ValueError as exc:
+            raise ValueError("limit 必須為整數") from exc
+        items = self.store.list_pending_notifications(limit=limit)
+        return 200, {"items": items}
 
     def _sync_status(
         self,
@@ -257,7 +314,14 @@ def create_pi_server(config: PiCoordinatorConfig) -> tuple[ThreadingHTTPServer, 
     store = CoordinatorStore(config.db_path, check_same_thread=False)
     tokens = build_bridge_token_directory(bridge_id=config.bridge_id, bridge_token=config.bridge_token)
     api = CoordinatorSyncApi(store, ApiGate(tokens))
-    app = PiCoordinatorApp(store, api)
+    app = PiCoordinatorApp(
+        store,
+        api,
+        device_id=config.device_id,
+        policy_version=config.policy_version,
+        generation=config.generation,
+        notify_ttl_seconds=config.notify_ttl_seconds,
+    )
     server = ThreadingHTTPServer((config.host, config.port), make_handler(app))
     if config.tls_cert is not None or config.tls_key is not None:
         if config.tls_cert is None or config.tls_key is None:

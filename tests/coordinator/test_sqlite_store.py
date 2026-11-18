@@ -26,6 +26,8 @@ def test_migration_applies_schema_version_and_indexes(
     assert "idx_receipts_delivery" in indexes
     assert "idx_event_evidence_event" in indexes
     assert "idx_purged_events_bridge_epoch" in indexes
+    assert "idx_pending_notifications_status_pri" in indexes
+    assert "idx_pending_notifications_expires" in indexes
 
 
 def test_append_only_batch_ingest_and_gap_cursor(

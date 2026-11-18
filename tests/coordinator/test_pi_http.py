@@ -351,3 +351,53 @@ def test_summarize_event_row_strips_sensitive_keys() -> None:
     assert "payload_json" not in summary
     assert "input_messages" not in summary
     assert "last_assistant_message" not in summary
+
+
+def test_batch_enqueues_pending_notification(
+    pi_server: dict[str, Any], sample_event: dict[str, Any]
+) -> None:
+    status, _ = _request(pi_server["base"], "GET", "/v1/notifications/pending")
+    assert status == 401
+
+    status, ack = _request(
+        pi_server["base"],
+        "POST",
+        "/v1/events/batch",
+        token=pi_server["token"],
+        body={"bridge_id": "bridge_primary", "epoch": "epoch-pi-1", "events": [sample_event]},
+    )
+    assert status == 200
+    assert ack["accepted_event_ids"] == ["evt_pi_001"]
+
+    status, pending = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/notifications/pending?limit=10",
+        token=pi_server["token"],
+    )
+    assert status == 200
+    assert len(pending["items"]) == 1
+    item = pending["items"][0]
+    assert item["delivery_id"] == "dlv_evt_pi_001"
+    assert item["event_ids"] == ["evt_pi_001"]
+    assert item["presentation_policy"]["tts"] is False
+    assert item["presentation_policy"]["audio"] is False
+    assert item["presentation_policy"]["motion"] is True
+
+    status, ack2 = _request(
+        pi_server["base"],
+        "POST",
+        "/v1/events/batch",
+        token=pi_server["token"],
+        body={"bridge_id": "bridge_primary", "epoch": "epoch-pi-1", "events": [sample_event]},
+    )
+    assert status == 200
+    assert ack2["duplicate_event_ids"] == ["evt_pi_001"]
+    status, pending2 = _request(
+        pi_server["base"],
+        "GET",
+        "/v1/notifications/pending?limit=10",
+        token=pi_server["token"],
+    )
+    assert status == 200
+    assert len(pending2["items"]) == 1
