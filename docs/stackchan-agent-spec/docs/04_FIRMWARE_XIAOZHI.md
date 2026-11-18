@@ -153,6 +153,14 @@ ESP-IDF 6.1 隔離映像完整建置 2,529 步通過；`stack-chan.bin` 為 `0x3
 
 本輪未修改產品程式碼、依賴清單或 lockfile。Xiaozhi HEAD 仍為 `49b4380b3faa0ceadd28a3e78aaf0f311c46c57e`，其追蹤檔差異經暫存 index 套用比對，完全等於既有 `xiaozhi-esp32.patch`。全套 pytest 362/362、host CTest 31/31 重驗通過。既有元件的 Kconfig、私有 include 與未使用變數警告仍存在，不宣稱零警告；實際 CoreS3 配對、SNTP、task heap／stack、重啟及 Xiaozhi 共存均未驗收，P2-04 保留未完成。
 
+後續獲准的 LAN 驗證發現 Windows 已保留 8443；經使用者同意，隔離測試的串流埠改為 **9445**，配對 9443、管理 9444 不變。`p204-bench-private/sdkconfig.defaults` 與 `start-stream.ps1` 已同步更新；原 `p204-bench/` 的 8443 映像保留為歷史產物，不能用它搭配目前的 9445 服務。新版建置使用另一目錄 `firmware/build/p204-bench-9445/`，與產品預設設定分開。真實網卡 bind、TLS 與來源限制的 17 項驗證及範圍限制見 03 文件與 `evidence/p204_lan_bind_20261118.json`；全部 listener 已關閉，未改防火牆。
+
+操作員接上 USB 後，唯讀列舉顯示 `COM8`、VID/PID `303A:1001`。本輪未開啟序列埠、進入 ROM、重新讀取晶片 MAC／分割表、重啟或寫入裝置；USB 列舉不等同本輪已驗證 flash 內容或裝置端配對。後續仍須確認裝置身分、目前分割表與可回復備份，再另行確認燒錄範圍。
+
+9445 新映像已完成 ESP-IDF 6.1 全量建置（2,529 步），`p204-bench-9445/stack-chan.bin` 為 `0x3a71a0`（3,830,176 bytes），最小 app 分割區剩 26%，SHA-256 `9440C93901EDED259792F6FFE7CA8BBC949BAFAA5B0013CDD25A4BD98D8CA92B`。esptool checksum／validation hash、配對及 Xiaozhi 八項 live 符號、公開 CA／host 嵌入核對通過；產生的 host／CA／9443／9445 設定與服務配置一致，未嵌入本輪產生的私鑰或管理員憑證。分割表與原 8443 測試映像逐位元組相同，NVS 仍為 `0x9000`／`0x4000` 且不加密。新的機密目錄內摘要為 `validation-9445.json`；不因本機 bind 驗證成功而將 `device_tested` 標為通過。
+
+下一步的待批准操作為 COM8 **ROM 模式唯讀辨識與 NVS 雙份備份**，包含操作員切入 ROM 及完成後恢復正常開機；不包含燒錄。操作員確認已在 ROM 模式後，先用 ESP-IDF Python 執行 esptool `--chip esp32s3 --port COM8 --before no-reset --after no-reset --no-stub read-mac` 核對 USB 身分，再執行既有 `firmware.capture_nvs_backup --port COM8 --table-offset 0x8000 --output-parent firmware/build/p204-bench-private`。工具先驗證分割表，再依表內範圍雙讀 NVS；結果與 9445 映像分割表作離線比對。若辨識、讀取或比對不符即停止。上述為尚未執行的具體計畫；須取得明確批准後才可開啟序列埠，實際燒錄位置與回復方案仍須另行審查。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。

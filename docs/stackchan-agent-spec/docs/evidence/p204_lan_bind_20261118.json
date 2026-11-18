@@ -1,0 +1,142 @@
+{
+  "timestamp_utc": "2026-11-18T02:41:34.344171+00:00",
+  "host": "10.12.245.137",
+  "allowed_device_ip": "10.12.245.29",
+  "client_source": "10.12.245.137",
+  "stream_port": 9445,
+  "core_s3_participated": false,
+  "firewall_changed": false,
+  "device_written": false,
+  "checks": [
+    {
+      "check": "listener_ready",
+      "endpoint": "Pairing ready on 10.12.245.137:9443",
+      "passed": true
+    },
+    {
+      "check": "listener_ready",
+      "endpoint": "Pairing admin ready on 127.0.0.1:9444",
+      "passed": true
+    },
+    {
+      "check": "listener_ready",
+      "endpoint": "Coordinator ready on 10.12.245.137:9445",
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "10.12.245.137",
+      "port": 9443,
+      "path": "/v1/pairing/sessions",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "10.12.245.137",
+      "port": 9443,
+      "path": "/v1/pairing/sessions/pair_0000000000000000/confirm",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "10.12.245.137",
+      "port": 9443,
+      "path": "/v1/pairing/sessions/pair_0000000000000000/complete",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "127.0.0.1",
+      "port": 9444,
+      "path": "/v1/pairing/sessions",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "127.0.0.1",
+      "port": 9444,
+      "path": "/v1/pairing/sessions/pair_0000000000000000/complete",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "127.0.0.1",
+      "port": 9444,
+      "path": "/v1/pairing/sessions/pair_0000000000000000/confirm",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "127.0.0.1",
+      "port": 9444,
+      "path": "/v1/pairing/sessions/pair_0000000000000000/confirm",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "https_gate",
+      "host": "10.12.245.137",
+      "port": 9445,
+      "path": "/v1/devices/not-a-device/policy",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "websocket_wrong_source",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "check": "untrusted_ca_refused",
+      "passed": true
+    },
+    {
+      "check": "listener_closed",
+      "host": "10.12.245.137",
+      "port": 9443,
+      "passed": true
+    },
+    {
+      "check": "listener_closed",
+      "host": "127.0.0.1",
+      "port": 9444,
+      "passed": true
+    },
+    {
+      "check": "listener_closed",
+      "host": "10.12.245.137",
+      "port": 9445,
+      "passed": true
+    },
+    {
+      "check": "bench_database_unchanged",
+      "passed": true
+    }
+  ],
+  "failure_type": null,
+  "initial_8443_bind": {
+    "result": "refused",
+    "winerror": 10013,
+    "windows_excluded_tcp_range": [
+      8377,
+      8476
+    ]
+  },
+  "scope_note": "Servers bound actual interface addresses. Clients ran on the same PC using 10.12.245.137; no request originated from CoreS3 and no external Wi-Fi reachability was proven.",
+  "matching_unflashed_firmware": {
+    "build_directory": "firmware/build/p204-bench-9445",
+    "stream_port": 9445,
+    "sha256": "9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b"
+  },
+  "usb_enumeration": {
+    "port": "COM8",
+    "vid_pid": "303A:1001",
+    "serial_port_opened": false
+  }
+}

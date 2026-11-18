@@ -147,6 +147,18 @@ stackchan coordinator find-pairings --security-db security.sqlite --user-code AB
 
 2026-11-18：查詢與串接專項 11/11，完整 pytest 362/362、host CTest 31/31。涵蓋狀態／期限／裝置類型篩選、錯代碼／pepper、唯讀內容不變、缺少／空白資料庫、輸入拒絕、控制字元跳脫、代碼衝突及回應上限，以及裝置代碼查詢 → 雙入口人工確認 → 重啟後舊領取拒絕。TLS 僅使用 loopback，LAN 綁定／來源仍為替身；未連線實機、燒錄、寫入裝置 NVS 或 eFuse。P2-04 實機驗收仍未完成。
 
+2026-11-18，使用者批准短暫真實 LAN listener 驗證。Windows TCP 保留範圍包含 `8377–8476`，原串流埠 8443 的 bind 回報 `WinError 10013`，未修改系統保留範圍或防火牆。先以 9443／9444 完成 13 項配對與管理入口檢查並關閉，再經使用者明確同意改用串流埠 9445。當前隔離測試配置為：
+
+| 入口 | 綁定位址 | 允許來源／路徑 |
+|---|---|---|
+| 配對 | `10.12.245.137:9443` | 裝置 `10.12.245.29`，僅 start／complete |
+| policy／stream | `10.12.245.137:9445` | 裝置 `10.12.245.29`，仍須有效授權及政策 |
+| 管理確認 | `127.0.0.1:9444` | 本機 confirm，仍須 `admin:pairing` |
+
+以既有 CLI 的獨立子程序實際綁定上述三個埠，使用本機來源 `10.12.245.137` 連到真實網卡位址，17 項檢查通過：可信 CA TLS、非允許來源的 start／confirm／complete／policy GET 皆回 403，WebSocket upgrade 亦回 403；管理埠的 start／complete 回 403、無效 token 的 confirm 回 401、有效管理員對不存在工作階段的 confirm 回 403；不信任測試 CA 的 client 握手遭拒。三個 listener 的子程序均已結束，清理後 TCP 連線遭拒，測試資料庫 SHA-256 不變。去除機密的原始結果保留於 `evidence/p204_lan_bind_20261118.json`。
+
+這次 client 與 server 同在一台 PC，並未冒用或模擬 `10.12.245.29`。證據可確認真實位址綁定、TLS 與本機非允許來源的限制，不能證明 CoreS3 正向連線、無線 AP 轉送或遠端網路可達性。未修改產品程式碼，pytest 362/362、host CTest 31/31；CoreS3 尚未參與，P2-04 保留未完成。
+
 ## 7. TTL、資料保留、背壓
 
 - TTL 僅控制**是否仍值得主動呈現**，資料保留則控制 Bridge／Coordinator 的歷史清理。
