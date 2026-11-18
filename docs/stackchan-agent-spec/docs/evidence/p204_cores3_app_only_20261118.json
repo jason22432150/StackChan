@@ -1,0 +1,99 @@
+{
+  "timestamp_utc": "2026-11-18T03:46:39.061932+00:00",
+  "candidate_sha256": "9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b",
+  "candidate_bytes": 3830176,
+  "write_offset": 131072,
+  "erase_end_exclusive": 3964928,
+  "preflight_passed": true,
+  "linked_efuse_write_functions": [],
+  "secure_boot_and_flash_encryption_disabled": true,
+  "rom_log_scheme_unchanged": true,
+  "flash_written": true,
+  "full_flash_backup_bytes": 16777216,
+  "full_flash_backup_sha256": "465b21f5bf42b9165056b21fdf90a3e63af9d4ab3e87bd63d6508b22a9c1537d",
+  "previous_app_nvs_otadata_partition_table_and_assets_match": true,
+  "flash_write_command_completed": true,
+  "readback_image_sha256": "9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b",
+  "full_after_flash_sha256": "85e888a93ba31393eca592650476715cc17888facd0922c64393b1d8eb5d8f68",
+  "all_bytes_outside_approved_erase_range_unchanged": true,
+  "candidate_readback_exact": true,
+  "bootloader_partition_table_otadata_nvs_assets_unchanged_before_boot": true,
+  "user_authorized_app_only_this_round": true,
+  "esptool_hash_verified": true,
+  "security_info_before_and_after_write": {
+    "flags": 0,
+    "secure_boot_enabled": false,
+    "flash_encryption_enabled": false,
+    "spi_boot_crypt_count": 0,
+    "key_purposes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      12
+    ]
+  },
+  "normal_boot_reset_command_completed": true,
+  "efuse_write_commands_executed": false,
+  "previous_stage_commit": "d16fd31",
+  "regression_tests": {
+    "pytest_passed": 378,
+    "host_ctest_passed": 31
+  },
+  "normal_boot_runtime_verified": false,
+  "device_positive_pairing_verified": false,
+  "device_rejection_verified": false,
+  "device_repair_after_reboot_verified": false,
+  "new_app_elf_prefix_observed": true,
+  "bootloader_selected_ota0_observed": true,
+  "sntp_sync_observed": true,
+  "startup_abort_count": 1,
+  "startup_abort": {
+    "error": "ESP_ERR_INVALID_RESPONSE (0x108)",
+    "component": "AW9523 initialization",
+    "file": "firmware/main/hal/board/stackchan.cc",
+    "line": 229,
+    "caller": "I2cDevice::WriteReg",
+    "after_automatic_reboot": "Second boot proceeded through LVGL and Wi-Fi initialization; no notification task started before failure. Root cause not established."
+  },
+  "startup_stability_passed": false,
+  "pairing_attempts": [
+    {
+      "pairing_id": "pair_44cda4481e5475d4",
+      "status": "completed",
+      "completed_at": "2026-11-18T03:53:02Z"
+    },
+    {
+      "pairing_id": "pair_b94df8ca7e07d38a",
+      "status": "rejected",
+      "completed_at": null
+    }
+  ],
+  "device_completed_pairing_verified": true,
+  "stream_sustained_verified": false,
+  "stream_observed_lifetime_ms": 40,
+  "resource_records": [
+    "AGENT_NOTIFY_RESOURCE phase=upgraded stack_min_free_bytes=2180 internal_free_bytes=88235 internal_min_since_boot_bytes=39828 internal_largest_block_bytes=31744 bootstrap_result=upgraded",
+    "AGENT_NOTIFY_RESOURCE phase=disconnected stack_min_free_bytes=2180 internal_free_bytes=88879 internal_min_since_boot_bytes=39828 internal_largest_block_bytes=31744 bootstrap_result=not_applicable"
+  ],
+  "clock_regression_host_reproduction": "2 ms elapsed during socket read reproduces false rollback; test fails before fix and passes after",
+  "listeners_closed": true,
+  "replacement_candidate": {
+    "candidate_sha256": "14f81c8febb56878d81ca084d209102d6ec941718cf970c5d6e38eb7479d3af5",
+    "candidate_bytes": 3830208,
+    "candidate_elf_sha256": "807312f21b31c7f74eb38fef63f1da7a52de5ff22c277c50cee0a75620ef0df1",
+    "image_checksum_and_digest_valid": true,
+    "no_linked_efuse_write_functions": true,
+    "sdkconfig_unchanged": true,
+    "partition_table_unchanged": true,
+    "write_offset": 131072,
+    "erase_end_exclusive": 3964928,
+    "flashed": false
+  },
+  "device_rejection_scope": "Coordinator persisted rejected, no completed_at; operator supplied next code without explicit screen-text confirmation.",
+  "device_ui_operator_confirmation": "Operator read two codes from pairing page; generic touch/UI and refusal text not separately confirmed.",
+  "original_app_restore_tested": false,
+  "nvs_restore_tested": false
+}

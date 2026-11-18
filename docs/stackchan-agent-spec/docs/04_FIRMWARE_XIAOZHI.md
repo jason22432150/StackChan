@@ -238,3 +238,18 @@ P2-09：`NotificationAudioGate`＋`kMvpAgentAudioCapability=A0` 凍結純 UI；�
 Assets 原始位元組與 9445 建置不同，因此另依 `assets.cc` 的 12-byte header／44-byte entry／ZZ magic 解析、核對 checksum 與範圍：兩邊均 42 個檔案、檔名與尺寸相同；40 個內容完全相同，`index.json` 只有換行與 emoji／extra_files 順序差異，正規化排序後物件相同。依 ESP-SR `model/pack_model.py` 格式比對 `srmodels.bin`，三個模型檔內容完全相同，只有封裝順序差異。這是保留原 Assets 的離線證據，新 app 的 UI／喚醒／音訊仍須實機回歸。
 
 恢復開機 reset 後，操作員確認原畫面與觸控恢復，未將語音或網路視為通過。本輪沒有燒錄；候選 app 仍為 SHA-256 `9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b`，若後續另獲批准，以 app-only 寫入 `0x20000`，預計 sector 擦除範圍為 `[0x20000, 0x3c8000)`，不應使用完整 `idf.py flash`。bootloader、分割表、otadata、Assets、NVS 不在該寫入範圍；但新 app 執行期的原廠 NVS 初始化仍可能在 NO_FREE_PAGES／NEW_VERSION 時清除 NVS，不能保證運行後絕不改動 NVS。實際寫入與回復步驟仍須另行批准、校驗與測試；P2-04 保留未完成。
+
+
+### P2-04 app-only 實機驗收與 I/O 時序修正（2026-11-18）
+
+上一輪以 pytest 378/378、host CTest 31/31 及 app／NVS 雙備份、OTA metadata、候選映像 SHA 重驗後提交 `d16fd31`。依使用者本輪批准，先確認同一 CoreS3 的 MAC／USB 身分與安全摘要：flags=0、Secure Boot／Flash Encryption 關閉、SPI_BOOT_CRYPT_CNT=0、六個金鑰槽用途仍為 USER。候選 sdkconfig 關閉加密、anti-rollback、ROM download mode 禁用及 ROM 日誌燒寫設定；最終 ELF 無 eFuse 寫入函式，核對 IDF 啟動分支後才操作。未執行任何 eFuse 寫入命令。
+
+先取得完整 16 MiB Flash 私人備份，再核對既有 app、NVS、otadata、分割表與 Assets 符合上一輪。只以 esptool `write-flash` 寫入 `9440c939…8ca92b` app，保留 Flash mode／frequency／size，offset `0x20000`、長度 3,830,176 bytes。esptool 寫入 hash 通過；開機前重新讀取完整 16 MiB，確認候選映像逐位元組相同、sector 尾部為 FF，且 `[0x20000, 0x3c8000)` 以外所有位元組完全未變，包括 bootloader、NVS、otadata、分割表及 Assets。安全摘要前後一致；不能將此摘要等同逐位元 eFuse 全量比對。原始 Flash／序列紀錄保留私人忽略目錄，公開證據見 `evidence/p204_cores3_app_only_20261118.json`。
+
+reset 後序列日誌確認從 ota_0 載入新 ELF（前綴 `46d39d2e4`）。曾於 `Aw9523` 初始化 `stackchan.cc:229` 發生 I²C `ESP_ERR_INVALID_RESPONSE`，`I2cDevice::WriteReg` 觸發 abort；解碼 backtrace 顯示位於 HAL 初始化、通知任務啟動之前。自動重啟後進入 LVGL／Wi-Fi 並見 SNTP time synchronized。這不能排除回歸，開機穩定性仍未通過，不擅自改動原廠硬體初始化。
+
+操作員從實機提供兩筆配對確認碼；第一筆由 loopback 管理 CLI 拒絕，DB 狀態 rejected 且無 completed_at。操作員隨後提供新碼，第二筆核准後 DB completed 並發出一個 device grant；實機診斷確認 policy／WebSocket upgraded。拒絕畫面文字尚未獨立確認；成功串流約 40 ms 即 disconnected，不能把持續串流或完整正向驗收記為通過。資源採樣為 task stack 最低剩 2,180 bytes、內部 heap 低水位 39,828 bytes、最大連續塊 31,744 bytes；只是單次握手樣本，不代表長時間或壓力驗收。
+
+主機回歸測試以 socket read 耗時 2 ms 重現時序錯誤：client.poll 使用較新的 monotonic 時間後，loop.tick 卻收到呼叫端讀取前的舊時間，誤觸時鐘倒退保護。修正 `notification_product_loop_poll.cpp`，在讀取完成後重新取樣單調時間；保留呼叫端時間的下界與原本 client 的真實倒退檢查。新增測試修正前確實失敗，修正後通過，並確認真正 heartbeat 到期與時鐘倒退仍斷線。完整重建 host targets 後 CTest 31/31、pytest 378/378 通過。
+
+修正版 ESP32-S3 app 六步建置及 checksum／digest 通過，長度 `0x3a71c0`、最小 app 分割區剩 26%；SHA-256 `14f81c8febb56878d81ca084d209102d6ec941718cf970c5d6e38eb7479d3af5`。sdkconfig 與分割表未變，ELF 無 eFuse 寫入函式；副本存於私人目錄 `clock-fix-app.bin`。此修正版尚未燒錄，已提出同一 app-only 範圍的具體批准請求。等待期間已關閉三個 listener 與 serial capture，核對埠已釋放。持續串流、重啟後 RAM 憑證失效與重新配對、原廠語音／網路共存、AW9523 異常與備份實際回復仍待驗收；P2-04 保留未完成。
