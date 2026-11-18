@@ -13,3 +13,6 @@ build/
 # Pi Coordinator 本機秘密與資料
 deploy/pi/.env
 deploy/pi/data/
+
+# Bridge 本機秘密
+deploy/bridge/.env

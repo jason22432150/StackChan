@@ -1,22 +1,28 @@
 """
-Windows Bridge CLI（P2-01）。
+個人版 Bridge CLI（Codex 優先）。
 
 指令：
-  stackchan bridge init --db PATH --bridge-id ID
-  stackchan bridge status --db PATH --bridge-id ID
-  stackchan bridge ingest-hook --adapter codex|cursor --file PAYLOAD.json
-  stackchan bridge ingest-hook --adapter codex --stdin   # 或 argv JSON（Codex notify）
+  stackchan bridge init
+  stackchan bridge status
+  stackchan bridge pending
+  stackchan bridge ingest-hook --adapter codex --file PAYLOAD.json
+  stackchan bridge ingest-hook --adapter codex --stdin
+  stackchan bridge ingest-hook --adapter codex --argv-json '...'
+  stackchan bridge print-codex-setup
+  stackchan bridge adapters
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from pathlib import Path
 from typing import Any, Sequence
 
 from stackchan.adapters import AdapterError, get_adapter
+from stackchan.bridge.paths import default_bridge_db_path, default_bridge_id
 from stackchan.bridge.service import BridgeService, dump_json
 from stackchan.bridge.store import BridgeStore, BridgeStoreError
 
@@ -25,39 +31,54 @@ def build_parser() -> argparse.ArgumentParser:
     """建立 bridge 子命令 parser。"""
     parser = argparse.ArgumentParser(
         prog="stackchan bridge",
-        description="StackChan Windows Bridge CLI（本機 Adapter／Outbox）",
+        description="StackChan Bridge CLI（本機 Codex Adapter／SQLite Outbox；不直送 CoreS3）",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    init_p = sub.add_parser("init", help="初始化 Bridge SQLite")
+    init_p = sub.add_parser("init", help="初始化 Bridge SQLite Outbox")
     _add_common_db(init_p)
     init_p.add_argument("--epoch", default="epoch-1", help="初始 epoch")
 
     status_p = sub.add_parser("status", help="顯示 pending／sequence 狀態")
     _add_common_db(status_p)
 
+    pending_p = sub.add_parser("pending", help="列出尚未送達 Coordinator 的事件摘要")
+    _add_common_db(pending_p)
+    pending_p.add_argument("--limit", type=int, default=50, help="最多列出幾筆")
+
     ingest_p = sub.add_parser(
         "ingest-hook",
-        help="讀取 Codex／Cursor Hook JSON 並寫入 Outbox",
+        help="讀取 Codex Hook／notify JSON 並寫入 Outbox",
     )
     _add_common_db(ingest_p)
     ingest_p.add_argument(
         "--adapter",
         required=True,
         choices=("codex", "cursor", "codex.hooks", "cursor.hooks"),
-        help="受授權 Adapter",
+        help="受授權 Adapter（首版以 Codex 為主；Cursor 僅預留）",
     )
     source = ingest_p.add_mutually_exclusive_group(required=True)
     source.add_argument("--file", type=Path, help="JSON 檔案路徑")
     source.add_argument(
         "--stdin",
         action="store_true",
-        help="自 stdin 讀取 JSON（Cursor／Codex hooks）",
+        help="自 stdin 讀取 JSON（Codex hooks）",
     )
     source.add_argument(
         "--argv-json",
         metavar="JSON",
         help="自命令列參數讀取 JSON（Codex legacy notify）",
+    )
+
+    setup_p = sub.add_parser(
+        "print-codex-setup",
+        help="輸出個人版 Codex hooks.json／notify 設定片段（不修改系統檔）",
+    )
+    _add_common_db(setup_p)
+    setup_p.add_argument(
+        "--stackchan-bin",
+        default="stackchan",
+        help="stackchan 可執行檔名稱或絕對路徑",
     )
 
     caps_p = sub.add_parser("adapters", help="列出受授權 Adapter 能力")
@@ -70,14 +91,22 @@ def _add_common_db(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--db",
         type=Path,
-        required=True,
-        help="Bridge SQLite 路徑",
+        default=None,
+        help=f"Bridge SQLite 路徑（預設：{default_bridge_db_path()}）",
     )
     parser.add_argument(
         "--bridge-id",
-        required=True,
-        help="本機 Bridge 識別",
+        default=None,
+        help=f"本機 Bridge 識別（預設：{default_bridge_id()}）",
     )
+
+
+def _resolve_db(args: argparse.Namespace) -> Path:
+    return Path(args.db) if args.db is not None else default_bridge_db_path()
+
+
+def _resolve_bridge_id(args: argparse.Namespace) -> str:
+    return args.bridge_id if args.bridge_id else default_bridge_id()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -92,8 +121,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_init(args)
         if args.command == "status":
             return _cmd_status(args)
+        if args.command == "pending":
+            return _cmd_pending(args)
         if args.command == "ingest-hook":
             return _cmd_ingest(args)
+        if args.command == "print-codex-setup":
+            return _cmd_print_codex_setup(args)
         parser.error(f"未知命令: {args.command}")
         return 2
     except (AdapterError, BridgeStoreError, OSError, json.JSONDecodeError, ValueError) as exc:
@@ -102,13 +135,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _cmd_adapters() -> int:
-    for name in ("codex", "cursor"):
+    # 首版誠實標示：Codex 為正式支援；Cursor 僅預留、未完成驗收
+    for name, support in (("codex", "supported"), ("cursor", "deferred")):
         adapter = get_adapter(name)
         cap = adapter.capability
         print(
             dump_json(
                 {
                     "name": name,
+                    "support": support,
                     "adapter_id": cap.adapter_id,
                     "source_kind": cap.source_kind,
                     "agent_id": cap.agent_id,
@@ -123,25 +158,56 @@ def _cmd_adapters() -> int:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    with BridgeStore(args.db) as store:
-        store.ensure_bridge(args.bridge_id, epoch=args.epoch)
-        settings = store.get_settings(args.bridge_id)
-    print(dump_json({"ok": True, "settings": settings}))
+    db = _resolve_db(args)
+    bridge_id = _resolve_bridge_id(args)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with BridgeStore(db) as store:
+        store.ensure_bridge(bridge_id, epoch=args.epoch)
+        settings = store.get_settings(bridge_id)
+    print(dump_json({"ok": True, "db": str(db), "settings": settings}))
     return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-    with BridgeStore(args.db) as store:
-        service = BridgeService(store, args.bridge_id)
-        print(dump_json(service.status()))
+    db = _resolve_db(args)
+    bridge_id = _resolve_bridge_id(args)
+    with BridgeStore(db) as store:
+        service = BridgeService(store, bridge_id)
+        payload = service.status()
+        payload["db"] = str(db)
+        print(dump_json(payload))
+    return 0
+
+
+def _cmd_pending(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise ValueError("--limit 必須 >= 1")
+    db = _resolve_db(args)
+    bridge_id = _resolve_bridge_id(args)
+    with BridgeStore(db) as store:
+        service = BridgeService(store, bridge_id)
+        print(
+            dump_json(
+                {
+                    "ok": True,
+                    "db": str(db),
+                    "bridge_id": bridge_id,
+                    "pending": service.list_pending_summaries(limit=args.limit),
+                    "pending_count": service.status()["pending_count"],
+                }
+            )
+        )
     return 0
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
     raw = _load_payload(args)
     adapter = get_adapter(args.adapter)
-    with BridgeStore(args.db) as store:
-        service = BridgeService(store, args.bridge_id)
+    db = _resolve_db(args)
+    bridge_id = _resolve_bridge_id(args)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with BridgeStore(db) as store:
+        service = BridgeService(store, bridge_id)
         outcome = service.ingest_raw(adapter, raw)
 
     if outcome.skipped:
@@ -169,6 +235,104 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
                 "epoch": outcome.result.epoch,
                 "event_type": (outcome.event or {}).get("event_type"),
                 "evidence_level": (outcome.event or {}).get("evidence_level"),
+                "db": str(db),
+            }
+        )
+    )
+    return 0
+
+
+def _cmd_print_codex_setup(args: argparse.Namespace) -> int:
+    """產生可複製的 Codex 設定；不寫入 ~/.codex。"""
+    db = _resolve_db(args).resolve()
+    bridge_id = _resolve_bridge_id(args)
+    binary = args.stackchan_bin
+    hook_cmd = (
+        f"{shlex.quote(binary)} bridge ingest-hook "
+        f"--db {shlex.quote(str(db))} --bridge-id {shlex.quote(bridge_id)} "
+        f"--adapter codex --stdin"
+    )
+    notify_cmd = [
+        binary,
+        "bridge",
+        "ingest-hook",
+        "--db",
+        str(db),
+        "--bridge-id",
+        bridge_id,
+        "--adapter",
+        "codex",
+        "--argv-json",
+    ]
+    hooks_json = {
+        "hooks": {
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_cmd,
+                            "timeout": 30,
+                        }
+                    ]
+                }
+            ],
+            "PermissionRequest": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_cmd,
+                            "timeout": 30,
+                        }
+                    ]
+                }
+            ],
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_cmd,
+                            "timeout": 30,
+                        }
+                    ]
+                }
+            ],
+        }
+    }
+    wrapper = Path(__file__).resolve().parents[3] / "deploy" / "bridge" / "codex-notify.sh"
+    print(
+        dump_json(
+            {
+                "ok": True,
+                "notes": [
+                    "此命令只輸出設定片段，不會修改 ~/.codex。",
+                    "請先執行 stackchan bridge init，再把 hooks／notify 貼到 Codex 設定。",
+                    "Codex 可能要求在 /hooks 中信任新 hook。",
+                    "response.completed 不等於 task.succeeded。",
+                    "Bridge 只寫本機 Outbox；尚未連線 Pi Coordinator（下一項功能）。",
+                    "絕不可讓 Bridge 直送 CoreS3。",
+                ],
+                "db": str(db),
+                "bridge_id": bridge_id,
+                "hooks_json": hooks_json,
+                "hooks_file_hint": "~/.codex/hooks.json 或專案 .codex/hooks.json",
+                "notify": {
+                    "description": "legacy notify：JSON 在最後一個 argv，請使用 wrapper",
+                    "config_toml_example": (
+                        f"notify = [{shlex.quote(str(wrapper))}]"
+                        if wrapper.exists()
+                        else 'notify = ["/absolute/path/to/deploy/bridge/codex-notify.sh"]'
+                    ),
+                    "wrapper": str(wrapper),
+                    "env": {
+                        "STACKCHAN_BRIDGE_DB": str(db),
+                        "STACKCHAN_BRIDGE_ID": bridge_id,
+                        "STACKCHAN_BIN": binary,
+                    },
+                    "direct_argv_prefix": notify_cmd,
+                },
             }
         )
     )

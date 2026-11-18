@@ -55,6 +55,21 @@ _HOOK_ALLOW = frozenset(
     }
 )
 
+# 即使誤入 allowlist 也強制剔除（密碼、Prompt、API Key、完整訊息）
+_SENSITIVE_KEY_MARKERS = (
+    "prompt",
+    "message",
+    "transcript",
+    "password",
+    "passwd",
+    "secret",
+    "api_key",
+    "apikey",
+    "authorization",
+    "token",
+    "cookie",
+)
+
 # 明確忽略：不產生通知噪音的內部階段
 _IGNORED_HOOKS = frozenset(
     {
@@ -111,7 +126,7 @@ class CodexAdapter:
                 session_id=str(thread_id),
                 source_task_id=str(turn_id),
                 observed_at=observed_at,
-                source_payload=allowlist_scalars(raw, _NOTIFY_ALLOW),
+                source_payload=_sanitize_payload(allowlist_scalars(raw, _NOTIFY_ALLOW)),
             )
 
         session_id = pick_scalar(raw, "session_id", "thread_id", "thread-id")
@@ -127,8 +142,19 @@ class CodexAdapter:
             session_id=str(session_id) if session_id is not None else None,
             source_task_id=str(turn_id) if turn_id is not None else None,
             observed_at=observed_at,
-            source_payload=allowlist_scalars(raw, _HOOK_ALLOW),
+            source_payload=_sanitize_payload(allowlist_scalars(raw, _HOOK_ALLOW)),
         )
+
+
+def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """二次過濾：移除名稱像機密／Prompt 的鍵。"""
+    cleaned: dict[str, Any] = {}
+    for key, value in payload.items():
+        lowered = key.lower().replace("-", "_")
+        if any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS):
+            continue
+        cleaned[key] = value
+    return cleaned
 
 
 def _map_hook_event(hook_name: str) -> tuple[str, str]:

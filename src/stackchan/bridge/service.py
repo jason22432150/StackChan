@@ -125,7 +125,31 @@ class BridgeService:
                 self.bridge_id,
                 settings["current_epoch"],
             ),
+            # 個人版不變式：Bridge 只保留本機 Outbox，絕不直送 CoreS3
+            "delivers_to_cores3": False,
+            "delivers_to_coordinator": False,
         }
+
+    def list_pending_summaries(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """列出 pending 摘要（不含 Prompt／訊息內文）。"""
+        summaries: list[dict[str, Any]] = []
+        for event in self.store.list_pending(self.bridge_id, limit=limit):
+            summaries.append(
+                {
+                    "event_id": event.get("event_id"),
+                    "observation_id": event.get("observation_id"),
+                    "bridge_sequence": event.get("bridge_sequence"),
+                    "epoch": event.get("epoch"),
+                    "event_type": event.get("event_type"),
+                    "evidence_level": event.get("evidence_level"),
+                    "adapter_id": event.get("adapter_id"),
+                    "agent_id": event.get("agent_id"),
+                    "observed_at": event.get("observed_at"),
+                    "session_id": event.get("session_id"),
+                    "source_task_id": event.get("source_task_id"),
+                }
+            )
+        return summaries
 
 
 def _stable_ids(
