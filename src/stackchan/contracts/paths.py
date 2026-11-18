@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -18,5 +19,11 @@ def repo_root() -> Path:
 
 
 def contracts_dir() -> Path:
-    """回傳凍結 JSON Schema 目錄。"""
+    """回傳凍結 JSON Schema 目錄（可用 STACKCHAN_CONTRACTS_DIR 覆寫，供容器使用）。"""
+    override = os.environ.get("STACKCHAN_CONTRACTS_DIR")
+    if override:
+        path = Path(override)
+        if not (path.is_dir() and (path / "agent-event.schema.json").is_file()):
+            raise FileNotFoundError(f"STACKCHAN_CONTRACTS_DIR 無效：{path}")
+        return path
     return repo_root() / "docs" / "stackchan-agent-spec" / "contracts"

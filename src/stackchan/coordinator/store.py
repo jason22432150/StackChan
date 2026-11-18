@@ -97,9 +97,14 @@ def _projection_status(event_type: str) -> str | None:
 class CoordinatorStore:
     """Coordinator SQLite 儲存。"""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, check_same_thread: bool = True) -> None:
         self.path = Path(path)
-        self._conn = sqlite3.connect(self.path, isolation_level=None)
+        # Pi HTTP（ThreadingHTTPServer）會在工作執行緒存取；呼叫端須自行序列化寫入。
+        self._conn = sqlite3.connect(
+            self.path,
+            isolation_level=None,
+            check_same_thread=check_same_thread,
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self.migrate()

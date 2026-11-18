@@ -1,4 +1,4 @@
-"""Launch the CoreS3 bench TLS listener."""
+"""Coordinator CLI：Pi HTTP 服務與既有 CoreS3 bench TLS listener。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from stackchan.coordinator.device_stream_server import serve_device_stream, vali
 from stackchan.coordinator.mvp_dispatcher import create_mvp_notification_dispatcher
 from stackchan.coordinator.pairing_admin import confirm_pairing
 from stackchan.coordinator.pairing_server import serve_device_pairing, serve_lan_device_pairing, validate_pairing_listener
+from stackchan.coordinator.pi_http import PiCoordinatorConfig, serve_pi_forever
 from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
 from stackchan.coordinator.runtime_limits import CORE_S3_MVP_RUNTIME_LIMITS
 from stackchan.security.auth_bridge import StoreBackedTokenDirectory
@@ -80,6 +81,34 @@ async def _serve_pairing(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stackchan coordinator")
     subcommands = parser.add_subparsers(dest="command", required=True)
+    serve_pi = subcommands.add_parser(
+        "serve-pi",
+        help="Raspberry Pi Coordinator：SQLite 事件匯入 HTTP（個人版最小服務）",
+    )
+    serve_pi.add_argument(
+        "--db",
+        type=Path,
+        default=Path(os.environ.get("STACKCHAN_COORDINATOR_DB", "/data/coordinator.sqlite3")),
+        help="Coordinator SQLite 路徑",
+    )
+    serve_pi.add_argument("--host", default=os.environ.get("STACKCHAN_LISTEN_HOST", "0.0.0.0"))
+    serve_pi.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("STACKCHAN_LISTEN_PORT", "8443")),
+    )
+    serve_pi.add_argument(
+        "--bridge-id",
+        default=os.environ.get("STACKCHAN_BRIDGE_ID", "bridge_primary"),
+        help="允許寫入的 Bridge ID",
+    )
+    serve_pi.add_argument(
+        "--bridge-token",
+        default=os.environ.get("STACKCHAN_BRIDGE_TOKEN", ""),
+        help="Bridge Bearer token（也可用環境變數）",
+    )
+    serve_pi.add_argument("--cert", type=Path, default=None, help="可選 TLS 憑證 PEM")
+    serve_pi.add_argument("--key", type=Path, default=None, help="可選 TLS 私鑰 PEM")
     serve = subcommands.add_parser("serve-device", help="serve CoreS3 policy and stream on one TLS port")
     pairing = subcommands.add_parser("serve-pairing", help="serve manually approved device pairing on loopback TLS")
     for command in (serve, pairing):
@@ -107,6 +136,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     serve.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
     serve.add_argument("--device-ip", help="the only peer IPv4 allowed with a private LAN listener")
     args = parser.parse_args(argv)
+    if args.command == "serve-pi":
+        token = args.bridge_token or os.environ.get("STACKCHAN_BRIDGE_TOKEN", "")
+        if not token.strip():
+            serve_pi.error("必須提供 --bridge-token 或 STACKCHAN_BRIDGE_TOKEN")
+        if not 0 <= args.port <= 65535:
+            serve_pi.error("--port must be between 0 and 65535")
+        cert = args.cert or (
+            Path(os.environ["STACKCHAN_TLS_CERT"]) if os.environ.get("STACKCHAN_TLS_CERT") else None
+        )
+        key = args.key or (
+            Path(os.environ["STACKCHAN_TLS_KEY"]) if os.environ.get("STACKCHAN_TLS_KEY") else None
+        )
+        try:
+            serve_pi_forever(
+                PiCoordinatorConfig(
+                    db_path=args.db,
+                    bridge_id=args.bridge_id,
+                    bridge_token=token,
+                    host=args.host,
+                    port=args.port,
+                    tls_cert=cert,
+                    tls_key=key,
+                )
+            )
+        except KeyboardInterrupt:
+            return 0
+        except (OSError, ValueError) as exc:
+            print(f"error: Pi Coordinator 啟動失敗：{exc}", file=sys.stderr)
+            return 1
+        return 0
     if args.command == "find-pairings":
         if not re.fullmatch(r"[A-Z0-9]{6}", args.user_code):
             find.error("user code must contain six uppercase letters or digits")

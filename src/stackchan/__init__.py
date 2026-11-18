@@ -18,9 +18,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = list(argv) if argv is not None else sys.argv[1:]
     if not args or args[0] in {"-h", "--help", "help"}:
         print("usage: stackchan <bridge|coordinator|version> ...")
-        print("  bridge   Windows Bridge CLI（init／status／ingest-hook／adapters）")
-        print("  coordinator  CoreS3 本機 TLS 驗收服務")
-        print("  version  顯示契約 schema_version")
+        print("  bridge       Windows／macOS／Linux Bridge CLI")
+        print("  coordinator  Pi Coordinator（serve-pi）與 CoreS3 TLS 驗收服務")
+        print("  version      顯示契約 schema_version")
         raise SystemExit(0 if args else 2)
 
     command, rest = args[0], args[1:]

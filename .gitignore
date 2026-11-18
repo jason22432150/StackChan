@@ -9,3 +9,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Pi Coordinator 本機秘密與資料
+deploy/pi/.env
+deploy/pi/data/

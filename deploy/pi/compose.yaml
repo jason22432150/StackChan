@@ -1,0 +1,46 @@
+# Raspberry Pi 4B：個人版 Coordinator（SQLite volume 常駐）
+# 使用：在 repo 根目錄執行
+#   docker compose -f deploy/pi/compose.yaml --env-file deploy/pi/.env up -d --build
+#
+# 必填環境變數（可用 deploy/pi/.env）：
+#   STACKCHAN_BRIDGE_TOKEN=請改成夠長的隨機字串
+# 選填：
+#   STACKCHAN_BRIDGE_ID=bridge_primary
+#   STACKCHAN_LISTEN_PORT=8443
+#
+# 安全注意：預設為明文 HTTP（僅供信任的家庭 LAN 開發）。
+# 正式對 Bridge 通訊前請改用 TLS（STACKCHAN_TLS_CERT／STACKCHAN_TLS_KEY）
+# 或限制防火牆／僅內網；埠號 8443 不代表已啟用 HTTPS。
+
+services:
+  coordinator:
+    build:
+      context: ../..
+      dockerfile: deploy/pi/Dockerfile
+    image: stackchan-pi-coordinator:local
+    restart: unless-stopped
+    ports:
+      - "${STACKCHAN_LISTEN_PORT:-8443}:8443"
+    environment:
+      STACKCHAN_COORDINATOR_DB: /data/coordinator.sqlite3
+      STACKCHAN_LISTEN_HOST: 0.0.0.0
+      STACKCHAN_LISTEN_PORT: "8443"
+      STACKCHAN_BRIDGE_ID: ${STACKCHAN_BRIDGE_ID:-bridge_primary}
+      STACKCHAN_BRIDGE_TOKEN: ${STACKCHAN_BRIDGE_TOKEN:?set STACKCHAN_BRIDGE_TOKEN}
+    volumes:
+      - coordinator-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8443/healthz', timeout=2)",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  coordinator-data:
