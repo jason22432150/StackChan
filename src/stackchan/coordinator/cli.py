@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import http.client
+import json
 import os
+import re
 import ssl
 import sys
 from contextlib import AsyncExitStack
@@ -98,10 +100,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     decision = confirm.add_mutually_exclusive_group(required=True)
     decision.add_argument("--approve", action="store_true", help="approve only after checking the device code")
     decision.add_argument("--reject", action="store_true", help="reject this pairing")
+    find = subcommands.add_parser("find-pairings", help="read local device pairing IDs matching a device code")
+    find.add_argument("--security-db", required=True, type=Path, help="existing local SecurityStore SQLite file")
+    find.add_argument("--user-code", required=True, help="six-character code shown on the device")
     serve.add_argument("--generation", required=True, type=int, help="CoreS3 Coordinator generation")
     serve.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
     serve.add_argument("--device-ip", help="the only peer IPv4 allowed with a private LAN listener")
     args = parser.parse_args(argv)
+    if args.command == "find-pairings":
+        if not re.fullmatch(r"[A-Z0-9]{6}", args.user_code):
+            find.error("user code must contain six uppercase letters or digits")
+        pepper = os.environ.get("STACKCHAN_SECURITY_PEPPER", "")
+        if not pepper:
+            find.error("set STACKCHAN_SECURITY_PEPPER to the existing store's pepper")
+        try:
+            with SecurityStore(args.security_db, hasher=TokenHasher(pepper.encode()), read_only=True) as store:
+                result = store.find_device_pairings(args.user_code)
+        except DatabaseError:
+            print("error: could not query the existing security database", file=sys.stderr)
+            return 1
+        # JSON escapes untrusted display names and terminal control characters.
+        print(json.dumps(result, ensure_ascii=True))
+        return 0
     if args.command == "confirm-pairing":
         token = os.environ.get("STACKCHAN_PAIRING_ADMIN_TOKEN", "")
         if not token:

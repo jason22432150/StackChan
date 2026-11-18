@@ -135,6 +135,18 @@ stackchan coordinator confirm-pairing --port 9444 --ca coordinator-ca.pem --pair
 
 2026-11-18：新增管理員 CLI 專項 27/27，涵蓋真實 loopback TLS 核准／拒絕、雙入口管理埠成功與裝置埠拒絕、錯 token／代碼、CA／主機名不符、無服務、輸入檢查與異常 HTTP 回應；完整 pytest 351/351、host CTest 31/31。LAN 位址與來源仍使用替身，未開真實 LAN listener 或操作裝置。此入口需要已知配對 ID；目前 CoreS3 頁面只顯示確認碼，本機待核准配對查詢入口仍待實作。實機 LAN、RAM 憑證、重啟及 Xiaozhi 共存驗收仍未完成。
 
+現在可先用裝置頁面顯示的六位確認碼查詢本機配對 ID，再執行上述 `confirm-pairing`。查詢須具備本機安全資料庫讀取權限及其既有 `STACKCHAN_SECURITY_PEPPER`，不需要管理員 token，也不會開啟網路連線。範例代碼須換成裝置顯示值。
+
+```powershell
+stackchan coordinator find-pairings --security-db security.sqlite --user-code ABC123
+```
+
+`find-pairings` 以 SQLite 唯讀模式比對代碼的既有 HMAC 雜湊，只輸出未到期、狀態為 pending／approved 的 device 配對 ID、顯示名稱、狀態及期限。回應為 JSON，最多 32 筆；超出時 `truncated:true`。不輸出確認碼、雜湊、token 或領取碼，顯示名稱中的控制字元會被 JSON 跳脫。沒有符合紀錄時回傳空清單，代碼衝突時列出多筆，不自動選擇或核准。錯誤 pepper 也會導致無法找到紀錄，空清單不代表 pepper 已驗證正確。
+
+查詢結果是本機資料庫快照，不保證 listener RAM 領取碼仍存在。配對服務重啟後，舊 pending／approved 紀錄可能仍可查得，確認／領取仍由實際服務 Fail-Closed；裝置須重新配對。取得 ID 後，仍須由操作員核對裝置及代碼並明確執行核准／拒絕。查詢入口不繞過 `admin:pairing` 或代碼驗證，也不建立或遷移資料庫。
+
+2026-11-18：查詢與串接專項 11/11，完整 pytest 362/362、host CTest 31/31。涵蓋狀態／期限／裝置類型篩選、錯代碼／pepper、唯讀內容不變、缺少／空白資料庫、輸入拒絕、控制字元跳脫、代碼衝突及回應上限，以及裝置代碼查詢 → 雙入口人工確認 → 重啟後舊領取拒絕。TLS 僅使用 loopback，LAN 綁定／來源仍為替身；未連線實機、燒錄、寫入裝置 NVS 或 eFuse。P2-04 實機驗收仍未完成。
+
 ## 7. TTL、資料保留、背壓
 
 - TTL 僅控制**是否仍值得主動呈現**，資料保留則控制 Bridge／Coordinator 的歷史清理。

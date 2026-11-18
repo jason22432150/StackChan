@@ -165,6 +165,20 @@ class SecurityStore:
             return False
         return self._hasher.verify(user_code, row["user_code_hash"])
 
+    def find_device_pairings(self, user_code: str) -> dict[str, Any]:
+        """Bounded, read-only metadata snapshot; RAM claim liveness is not implied."""
+        rows = self._conn.execute(
+            """
+            SELECT pairing_id, display_name, status, expires_at
+            FROM pairing_sessions
+            WHERE subject_type = 'device' AND status IN ('pending', 'approved')
+              AND expires_at > ? AND user_code_hash = ?
+            ORDER BY created_at, pairing_id LIMIT 33
+            """,
+            (_utc_now(), self._hasher.hash_token(user_code)),
+        ).fetchall()
+        return {"pairings": [dict(row) for row in rows[:32]], "truncated": len(rows) > 32}
+
     def set_pairing_status(
         self,
         pairing_id: str,

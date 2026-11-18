@@ -326,6 +326,38 @@ def test_manual_confirmation_cli_targets_split_admin_only(bench, split_pairing, 
     asyncio.run(exercise())
 
 
+def test_lookup_from_device_code_connects_to_manual_confirmation(bench, split_pairing, monkeypatch, capsys):
+    db, _, client = bench
+    launch, _, _ = split_pairing
+    monkeypatch.setenv("STACKCHAN_PAIRING_ADMIN_TOKEN", ADMIN)
+
+    async def exercise():
+        async with launch() as (device, admin):
+            challenge, claim = await _start(client, device)
+            assert cli.main(["find-pairings", "--security-db", str(db), "--user-code", challenge["user_code"]]) == 0
+            result = json.loads(capsys.readouterr().out)
+            assert not result["truncated"] and len(result["pairings"]) == 1
+            pairing_id = result["pairings"][0]["pairing_id"]
+            assert pairing_id == challenge["pairing_id"]
+            assert await asyncio.to_thread(cli.main, [
+                "confirm-pairing", "--port", str(admin), "--ca", str(db.parent / "ca.pem"),
+                "--pairing-id", pairing_id, "--user-code", challenge["user_code"], "--approve",
+            ]) == 0
+        capsys.readouterr()
+        # A database snapshot survives restart; the RAM claim does not.
+        async with launch() as (device, admin):
+            assert cli.main(["find-pairings", "--security-db", str(db), "--user-code", challenge["user_code"]]) == 0
+            snapshot = json.loads(capsys.readouterr().out)
+            assert snapshot["pairings"][0]["status"] == "approved"
+            assert (await _post(client, device, f"{START}/{pairing_id}/complete", **{CLAIM: claim}))[0] == 401
+            assert await asyncio.to_thread(cli.main, [
+                "confirm-pairing", "--port", str(admin), "--ca", str(db.parent / "ca.pem"),
+                "--pairing-id", pairing_id, "--user-code", challenge["user_code"], "--approve",
+            ]) == 1
+
+    asyncio.run(exercise())
+
+
 def test_split_pairing_device_cannot_confirm_and_admin_cannot_claim(bench, split_pairing):
     _, _, tls = bench
     launch, _, calls = split_pairing
