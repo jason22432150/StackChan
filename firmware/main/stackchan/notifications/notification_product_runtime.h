@@ -14,8 +14,8 @@ namespace stackchan::notifications {
  *
  * - 預設不開啟 TLS／WebSocket（無憑證絕不 connect）
  * - tick 必須在 LVGL lock 外呼叫
- * - Null UI：不掛 Avatar（P2-08）；仍經 LvglLockedUiPort 守鎖紀律
- * - 不呼叫 Xiaozhi Audio／Servo
+ * - Avatar speech UI＋安全 Motion 反應（經 ResourceArbiter；Xiaozhi Busy 停 Servo）
+ * - 不呼叫 Xiaozhi Audio／TTS（仍為 A0）
  * - arm：僅接受已驗證 StreamProvision；init 本身不 fetch／不 start
  */
 void initNotificationProductRuntime();

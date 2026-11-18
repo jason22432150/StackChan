@@ -1,5 +1,7 @@
 #include "notification_product_loop.h"
 
+#include "basic_notice_text.h"
+
 namespace stackchan::notifications {
 
 NotificationProductLoop::NotificationProductLoop(NotificationController& controller, FailClosedGuard& guard,
@@ -39,7 +41,12 @@ NotificationProductLoop::Outcome NotificationProductLoop::tick(Tick now, UtcMs r
         return Outcome::Idle;
     }
     const std::string_view delivery{next->id.data()};
-    if (!_presenter.present(NoticeKind::Neutral, delivery, now)) {
+    // 個人版基本提示：中性樣式＋可讀文案；不宣稱 task.succeeded。
+    char notice[NotificationPresenter::max_text_bytes + 1] = {};
+    const auto notice_len =
+        formatBasicNoticeText(NoticeKind::Neutral, delivery, notice, sizeof(notice));
+    if (notice_len == 0 ||
+        !_presenter.present(NoticeKind::Neutral, std::string_view(notice, notice_len), now)) {
         return Outcome::Idle;
     }
     if (_receipts != nullptr) {

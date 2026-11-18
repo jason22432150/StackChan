@@ -90,19 +90,62 @@ target_include_directories(presentation_receipt_test PRIVATE ../main)
 target_compile_features(presentation_receipt_test PRIVATE cxx_std_17)
 add_test(NAME presentation_receipt_test COMMAND $<TARGET_FILE:presentation_receipt_test>)
 
+# Presenter 已可選掛 Motion；凡連結 notification_presenter.cpp 者需一併連結。
+set(STACKCHAN_NOTICE_MOTION_SOURCES
+    ../main/stackchan/notifications/notice_motion_plan.cpp
+    ../main/stackchan/notifications/notification_motion_reactor.cpp
+)
+
 add_executable(notification_presenter_test
     notification_presenter_test.cpp
     ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
     ../main/stackchan/notifications/resource_arbiter.cpp
 )
 target_include_directories(notification_presenter_test PRIVATE ../main)
 target_compile_features(notification_presenter_test PRIVATE cxx_std_17)
 add_test(NAME notification_presenter_test COMMAND $<TARGET_FILE:notification_presenter_test>)
 
+add_executable(basic_notice_text_test
+    basic_notice_text_test.cpp
+    ../main/stackchan/notifications/basic_notice_text.cpp
+)
+target_include_directories(basic_notice_text_test PRIVATE ../main)
+target_compile_features(basic_notice_text_test PRIVATE cxx_std_17)
+add_test(NAME basic_notice_text_test COMMAND $<TARGET_FILE:basic_notice_text_test>)
+
+add_executable(avatar_speech_ui_test
+    avatar_speech_ui_test.cpp
+    ../main/stackchan/notifications/avatar_speech_ui.cpp
+    ../main/stackchan/notifications/basic_notice_text.cpp
+)
+target_include_directories(avatar_speech_ui_test PRIVATE ../main)
+target_compile_features(avatar_speech_ui_test PRIVATE cxx_std_17)
+add_test(NAME avatar_speech_ui_test COMMAND $<TARGET_FILE:avatar_speech_ui_test>)
+
+add_executable(notice_motion_plan_test
+    notice_motion_plan_test.cpp
+    ../main/stackchan/notifications/notice_motion_plan.cpp
+)
+target_include_directories(notice_motion_plan_test PRIVATE ../main)
+target_compile_features(notice_motion_plan_test PRIVATE cxx_std_17)
+add_test(NAME notice_motion_plan_test COMMAND $<TARGET_FILE:notice_motion_plan_test>)
+
+add_executable(notification_motion_reactor_test
+    notification_motion_reactor_test.cpp
+    ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
+    ../main/stackchan/notifications/resource_arbiter.cpp
+)
+target_include_directories(notification_motion_reactor_test PRIVATE ../main)
+target_compile_features(notification_motion_reactor_test PRIVATE cxx_std_17)
+add_test(NAME notification_motion_reactor_test COMMAND $<TARGET_FILE:notification_motion_reactor_test>)
+
 add_executable(fail_closed_guard_test
     fail_closed_guard_test.cpp
     ../main/stackchan/notifications/fail_closed_guard.cpp
     ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
     ../main/stackchan/notifications/resource_arbiter.cpp
     ../main/stackchan/notifications/notification_controller.cpp
     ../main/stackchan/notifications/presentation_receipt.cpp
@@ -116,6 +159,7 @@ add_executable(fail_closed_budget_test
     ../main/stackchan/notifications/fail_closed_budget.cpp
     ../main/stackchan/notifications/fail_closed_guard.cpp
     ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
     ../main/stackchan/notifications/resource_arbiter.cpp
     ../main/stackchan/notifications/notification_controller.cpp
     ../main/stackchan/notifications/presentation_receipt.cpp
@@ -131,6 +175,7 @@ add_executable(fail_closed_revoke_probe_test
     ../main/stackchan/notifications/fail_closed_budget.cpp
     ../main/stackchan/notifications/fail_closed_guard.cpp
     ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
     ../main/stackchan/notifications/resource_arbiter.cpp
     ../main/stackchan/notifications/notification_controller.cpp
     ../main/stackchan/notifications/presentation_receipt.cpp
@@ -143,8 +188,10 @@ add_test(NAME fail_closed_revoke_probe_test COMMAND $<TARGET_FILE:fail_closed_re
 add_executable(notification_product_loop_test
     notification_product_loop_test.cpp
     ../main/stackchan/notifications/notification_product_loop.cpp
+    ../main/stackchan/notifications/basic_notice_text.cpp
     ../main/stackchan/notifications/fail_closed_guard.cpp
     ../main/stackchan/notifications/notification_presenter.cpp
+    ${STACKCHAN_NOTICE_MOTION_SOURCES}
     ../main/stackchan/notifications/resource_arbiter.cpp
     ../main/stackchan/notifications/notification_controller.cpp
     ../main/stackchan/notifications/presentation_receipt.cpp
@@ -252,8 +299,11 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/notification_credentials.cpp
         ../main/stackchan/notifications/notification_product_runtime.cpp
         ../main/stackchan/notifications/notification_product_loop.cpp
+        ../main/stackchan/notifications/basic_notice_text.cpp
+        ../main/stackchan/notifications/avatar_speech_ui.cpp
         ../main/stackchan/notifications/notification_product_loop_poll.cpp
         ../main/stackchan/notifications/notification_presenter.cpp
+        ${STACKCHAN_NOTICE_MOTION_SOURCES}
         ../main/stackchan/notifications/fail_closed_guard.cpp
         ../main/stackchan/notifications/resource_arbiter.cpp
         ../main/stackchan/notifications/presentation_receipt.cpp
@@ -295,9 +345,11 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     add_executable(notification_product_loop_poll_test
         notification_product_loop_poll_test.cpp
         ../main/stackchan/notifications/notification_product_loop.cpp
+        ../main/stackchan/notifications/basic_notice_text.cpp
         ../main/stackchan/notifications/notification_product_loop_poll.cpp
         ../main/stackchan/notifications/fail_closed_guard.cpp
         ../main/stackchan/notifications/notification_presenter.cpp
+        ${STACKCHAN_NOTICE_MOTION_SOURCES}
         ../main/stackchan/notifications/resource_arbiter.cpp
         ../main/stackchan/notifications/notification_controller.cpp
         ../main/stackchan/notifications/presentation_receipt.cpp

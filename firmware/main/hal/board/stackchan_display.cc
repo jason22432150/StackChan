@@ -570,4 +570,19 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
 
 void StackChanAvatarDisplay::ShowNotification(const char* notification, int duration_ms)
 {
+    // 個人版：補上原廠空實作，將提示送到 Avatar speech bubble。
+    // duration_ms 由呼叫端／NotificationPresenter 負責清屏；此處不另開平行計時器。
+    (void)duration_ms;
+    if (notification == nullptr || notification[0] == '\0') {
+        return;
+    }
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) {
+        ESP_LOGE(TAG, "Avatar is invalid");
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    stackchan.avatar().setSpeech(notification);
+    ESP_LOGI(TAG, "ShowNotification: %s", notification);
 }

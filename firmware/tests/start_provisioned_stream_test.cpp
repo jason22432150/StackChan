@@ -8,8 +8,10 @@
 #include <esp_transport_ws.h>
 #include <iostream>
 #include <string>
+#include <stackchan/notifications/avatar_speech_ui.h>
 #include <stackchan/notifications/notification_credentials.h>
 #include <stackchan/notifications/notification_lvgl_hooks.h>
+#include <stackchan/notifications/notification_motion_reactor.h>
 #include <stackchan/notifications/notification_pairing_client.h>
 #include <stackchan/notifications/notification_product_runtime.h>
 #include <stackchan/notifications/notification_utc_clock.h>
@@ -17,7 +19,26 @@
 #include <stackchan/notifications/stream_session_start.h>
 
 namespace stackchan::notifications {
+namespace {
+bool hostSpeechShow(void*, NoticeKind, std::string_view)
+{
+    // host CTest：埠可用即可，避免佇列卡死；不連 Avatar／LVGL。
+    return true;
+}
+void hostSpeechClear(void*) {}
+bool hostMotionNudge(void*, const NoticeMotionCommand&) { return true; }
+void hostMotionStopHome(void*, const NoticeMotionCommand&) {}
+}  // namespace
+
 LvglLockHooks makeHalLvglLockHooks() { return {}; }
+AvatarSpeechSink makeDeviceAvatarSpeechSink()
+{
+    return AvatarSpeechSink{hostSpeechShow, hostSpeechClear, nullptr};
+}
+NoticeMotionSink makeDeviceNoticeMotionSink()
+{
+    return NoticeMotionSink{hostMotionNudge, hostMotionStopHome, nullptr};
+}
 }  // namespace stackchan::notifications
 
 using stackchan::notifications::DeviceStreamTlsClient;

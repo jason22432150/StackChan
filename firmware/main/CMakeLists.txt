@@ -55,6 +55,12 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/notification_product_loop.cpp"
     "stackchan/notifications/notification_product_loop_poll.cpp"
     "stackchan/notifications/notification_product_runtime.cpp"
+    "stackchan/notifications/basic_notice_text.cpp"
+    "stackchan/notifications/avatar_speech_ui.cpp"
+    "stackchan/notifications/avatar_speech_device_sink.cpp"
+    "stackchan/notifications/notice_motion_plan.cpp"
+    "stackchan/notifications/notification_motion_reactor.cpp"
+    "stackchan/notifications/notice_motion_device_sink.cpp"
     "stackchan/notifications/link_anchor.cpp"
 )
 list(APPEND STACK_CHAN_SOURCES ${STACK_CHAN_NOTIFICATION_SOURCES})

@@ -15,9 +15,9 @@ class DeviceStreamTlsClient;
  * P2-04 產品路徑：常駐控制迴圈的單一 tick 進入點。
  *
  * 組裝 NotificationController＋FailClosedGuard＋NotificationPresenter。
- * 單一執行上下文；不持 LVGL lock；不呼叫 Xiaozhi／Audio／Servo；不自行開啟 TLS。
+ * 單一執行上下文；不持 LVGL lock；不直接呼叫 Xiaozhi／Audio；Servo 由 Presenter／MotionReactor 經租約執行；不自行開啟 TLS。
  * TLS 須由呼叫端先 `startProvisionedDeviceStream`；未 start 時 pollClient 為 no-op。
- * Avatar／ShowNotification 實機畫面屬 P2-08，不在本模組完成。
+ * 呈現文案經 formatBasicNoticeText；實際 Avatar／LVGL 由 Presenter UI 埠負責。
  */
 class NotificationProductLoop {
 public:
@@ -43,7 +43,7 @@ public:
 
     /**
      * 每個控制迴圈呼叫：FailClosedGuard.poll →（Active 且尚無可見通知）takeNext → present。
-     * MVP 呈現文字為 delivery id（完整 intent 文案屬後續契約擴充）。
+     * MVP 呈現基本提示文案（含可選短 delivery 尾碼）；完整 intent 文案屬後續契約擴充。
      */
     Outcome tick(Tick now, UtcMs reported_at_utc_ms);
 

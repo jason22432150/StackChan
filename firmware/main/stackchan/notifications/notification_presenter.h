@@ -54,6 +54,8 @@ private:
  * - 撤銷／Xiaozhi Busy：先 arbiter 同步失效，再 clear（clear 不需租約）
  * - 不持 LVGL lock 呼叫 arbiter；不繞過 Xiaozhi（Busy 時拒絕 present）
  */
+class NotificationMotionReactor;
+
 class NotificationPresenter {
 public:
     static constexpr std::size_t max_text_bytes = 128;
@@ -61,21 +63,25 @@ public:
     using Generation = ResourceArbiter::Generation;
     using Tick = ResourceArbiter::Tick;
 
-    NotificationPresenter(ResourceArbiter& arbiter, NotificationUiPort& ui);
+    /**
+     * @param motion 可選；非空時在 UI 成功後嘗試安全 Servo（失敗不回滾 UI）。
+     */
+    NotificationPresenter(ResourceArbiter& arbiter, NotificationUiPort& ui,
+                          NotificationMotionReactor* motion = nullptr);
 
     /** 開始呈現；成功後持有 UI 租約並留下可見狀態。 */
     bool present(NoticeKind kind, std::string_view text, Tick now);
 
-    /** 正常結束：清屏並釋放 UI 租約（不 bump Generation）。 */
+    /** 正常結束：清屏、停止 Motion 並釋放 UI 租約（不 bump Generation）。 */
     void dismiss(Tick now);
 
     /**
-     * 安全中斷：cancelCurrent＋清屏。
+     * 安全中斷：cancelCurrent＋清屏＋Servo 回正。
      * 回傳 arbiter 取消確認（不等待子系統 ACK）。
      */
     ResourceArbiter::CancelConfirmation interrupt(Tick now);
 
-    /** Xiaozhi 搶占：轉發 Busy／Idle；Busy 時若可見則清屏。 */
+    /** Xiaozhi 搶占：轉發 Busy／Idle；Busy 時若可見則清屏並停 Motion。 */
     void onXiaozhiActivity(ResourceArbiter::XiaozhiActivity activity, Tick now);
 
     bool isVisible() const { return _visible; }
@@ -87,6 +93,7 @@ private:
 
     ResourceArbiter& _arbiter;
     NotificationUiPort& _ui;
+    NotificationMotionReactor* _motion;
     Generation _generation = 0;
     NoticeKind _kind = NoticeKind::Neutral;
     bool _visible = false;

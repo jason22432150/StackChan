@@ -1,9 +1,11 @@
 #include "notification_product_runtime.h"
 
+#include "avatar_speech_ui.h"
 #include "device_stream_tls_client.h"
 #include "fail_closed_guard.h"
 #include "notification_credentials.h"
 #include "notification_lvgl_hooks.h"
+#include "notification_motion_reactor.h"
 #include "notification_payload.h"
 #include "notification_presenter.h"
 #include "notification_product_loop.h"
@@ -22,22 +24,15 @@
 namespace stackchan::notifications {
 namespace {
 
-struct NullNotificationUi final : NotificationUiPort {
-    bool show(NoticeKind, std::string_view) override
-    {
-        // P2-08 前不畫 Avatar；回傳 true 僅表示埠可用，避免卡死佇列。
-        return true;
-    }
-    void clear() override {}
-};
-
 struct ProductRuntime {
     NotificationRuntimeProfile profile = kCoreS3MvpRuntimeProfile;
     DeviceStreamTlsClient client{profile.controller, profile.max_frame_age_ms};
     ResourceArbiter arbiter;
-    NullNotificationUi null_ui;
-    LvglLockedUiPort ui{null_ui, makeHalLvglLockHooks()};
-    NotificationPresenter presenter{arbiter, ui};
+    // 裝置端綁 Avatar speech／Motion；host CTest 可 stub device sink。
+    AvatarSpeechUi speech_ui{makeDeviceAvatarSpeechSink()};
+    LvglLockedUiPort ui{speech_ui, makeHalLvglLockHooks()};
+    NotificationMotionReactor motion{makeDeviceNoticeMotionSink()};
+    NotificationPresenter presenter{arbiter, ui, &motion};
     PresentationReceiptTracker receipts;
     FailClosedGuard guard{client.controller(), presenter, &receipts};
     NotificationProductLoop loop{client.controller(), guard, presenter, &receipts};

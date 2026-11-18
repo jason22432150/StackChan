@@ -1,5 +1,7 @@
 #include "notification_presenter.h"
 
+#include "notification_motion_reactor.h"
+
 namespace stackchan::notifications {
 namespace {
 
@@ -41,8 +43,9 @@ void LvglLockedUiPort::clear()
     _hooks.unlock(_hooks.ctx);
 }
 
-NotificationPresenter::NotificationPresenter(ResourceArbiter& arbiter, NotificationUiPort& ui)
-    : _arbiter(arbiter), _ui(ui)
+NotificationPresenter::NotificationPresenter(ResourceArbiter& arbiter, NotificationUiPort& ui,
+                                             NotificationMotionReactor* motion)
+    : _arbiter(arbiter), _ui(ui), _motion(motion)
 {
 }
 
@@ -61,8 +64,11 @@ bool NotificationPresenter::present(NoticeKind kind, std::string_view text, Tick
         return false;
     }
 
-    // 新呈現先清舊畫面（不持 lock 做 arbiter）。
+    // 新呈現先停舊 Motion、清舊畫面（不持 lock 做 arbiter）。
     if (_visible) {
+        if (_motion != nullptr) {
+            _motion->stop(_arbiter, _generation, now);
+        }
         _ui.clear();
         _visible = false;
     }
@@ -82,6 +88,11 @@ bool NotificationPresenter::present(NoticeKind kind, std::string_view text, Tick
         return false;
     }
 
+    // Motion 為加分項：失敗不回滾已顯示的 UI／表情。
+    if (_motion != nullptr) {
+        (void)_motion->start(_arbiter, generation, kind, now);
+    }
+
     _generation = generation;
     _kind = kind;
     _visible = true;
@@ -90,6 +101,9 @@ bool NotificationPresenter::present(NoticeKind kind, std::string_view text, Tick
 
 void NotificationPresenter::dismiss(Tick now)
 {
+    if (_motion != nullptr) {
+        _motion->stop(_arbiter, _generation, now);
+    }
     if (_visible) {
         _ui.clear();
         _visible = false;
@@ -101,6 +115,11 @@ void NotificationPresenter::dismiss(Tick now)
 
 ResourceArbiter::CancelConfirmation NotificationPresenter::interrupt(Tick now)
 {
+    const auto gen = _generation;
+    if (_motion != nullptr) {
+        // 先停 Servo，再 bump Generation（cancelCurrent 會清租約）。
+        _motion->forceStop(_arbiter, gen, now);
+    }
     const auto confirmation = _arbiter.cancelCurrent(now);
     if (_visible) {
         _ui.clear();
@@ -112,6 +131,9 @@ ResourceArbiter::CancelConfirmation NotificationPresenter::interrupt(Tick now)
 
 void NotificationPresenter::onXiaozhiActivity(ResourceArbiter::XiaozhiActivity activity, Tick now)
 {
+    if (activity == ResourceArbiter::XiaozhiActivity::Busy && _motion != nullptr) {
+        _motion->forceStop(_arbiter, _generation, now);
+    }
     _arbiter.onXiaozhiActivity(activity, now);
     if (activity == ResourceArbiter::XiaozhiActivity::Busy && _visible) {
         // 搶占：授權已讓出後清屏；不得繼續顯示 Agent 通知。

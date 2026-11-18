@@ -82,7 +82,8 @@ void testPresentDequeuesOneDelivery()
     expect(fx.ingress.receiveIntent({1, "dev", "v1", 1, 1002}, "dlv-1", 2000, 2), "enqueue");
     expect(fx.loop.tick(2, 1002) == Outcome::Presented, "present delivery");
     expect(fx.presenter.isVisible(), "visible");
-    expect(!fx.inner.ops.empty() && fx.inner.ops.back() == "show:dlv-1", "ui show delivery id");
+    expect(!fx.inner.ops.empty() && fx.inner.ops.back() == "show:Agent update: dlv-1",
+           "ui show basic notice text");
     expect(fx.receipts.status() == PresentationReceiptTracker::Status::Started, "receipt started");
     // 可見期間不再 dequeue／覆蓋
     expect(fx.ingress.receiveIntent({1, "dev", "v1", 1, 1003}, "dlv-2", 2000, 3), "second intent");
