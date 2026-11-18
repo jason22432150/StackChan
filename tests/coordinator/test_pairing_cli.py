@@ -12,10 +12,16 @@ from contextlib import asynccontextmanager
 
 import pytest
 import trustme
+from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from stackchan.coordinator import cli
 from stackchan.coordinator import pairing_server
+from stackchan.coordinator.device_stream_server import serve_device_stream
+from stackchan.coordinator.mvp_dispatcher import create_mvp_notification_dispatcher
+from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
 from stackchan.contracts.authz import ApiGate
+from stackchan.contracts.validate import validate_device_stream_envelope, validate_notification_intent
 from stackchan.security.auth_bridge import StoreBackedTokenDirectory
 from stackchan.security.identity import TokenHasher
 from stackchan.security.pairing import PairingService
@@ -470,5 +476,115 @@ def test_pairing_cli_split_runtime_serves_both_ports_and_closes_on_cancel(bench,
         for port in ports:
             with pytest.raises(OSError):
                 await asyncio.open_connection("127.0.0.1", port)
+
+    asyncio.run(exercise())
+
+
+async def _paired_policy(tls, port, device_id, token):
+    async with asyncio.timeout(5):
+        reader, writer = await asyncio.open_connection("127.0.0.1", port, ssl=tls)
+        try:
+            writer.write((
+                f"GET /v1/devices/{device_id}/policy HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                f"Authorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+            ).encode())
+            await writer.drain()
+            head, _, body = (await reader.read()).partition(b"\r\n\r\n")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    return int(head.split()[1]), json.loads(body)
+
+
+@pytest.mark.parametrize("revocation", ["grant", "policy"])
+def test_split_pairing_feeds_existing_read_only_policy_and_stream(bench, split_pairing, revocation):
+    """Pairing commits must become visible to an already-open, separate reader."""
+    db, args, client = bench
+    launch, _, _ = split_pairing
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(args[args.index("--cert") + 1], args[args.index("--key") + 1])
+
+    async def exercise():
+        with SecurityStore(db, hasher=TokenHasher(PEPPER.encode()), read_only=True) as reader_store:
+            tokens = StoreBackedTokenDirectory(reader_store)
+            policies = PolicyService(reader_store)
+            dispatcher = create_mvp_notification_dispatcher(tokens, policies, stable_seconds=0.04)
+            async with serve_device_stream(
+                dispatcher, tls, port=0, generation=17, heartbeat_interval=0.02, pong_timeout=0.2,
+                policy_leases=DevicePolicyLeaseService(ApiGate(tokens), policies),
+            ) as stream:
+                port = stream.sockets[0].getsockname()[1]
+                url = f"wss://127.0.0.1:{port}/v1/device-stream"
+                # Both the SQLite reader and stream listener are live before either grant exists.
+                async with launch() as (device_port, admin_port):
+                    grants = []
+                    for _ in range(2):
+                        challenge, claim = await _start(client, device_port)
+                        assert (await _confirm(client, admin_port, challenge))[0] == 200
+                        status, _, grant = await _post(
+                            client, device_port, f"{START}/{challenge['pairing_id']}/complete", **{CLAIM: claim},
+                        )
+                        assert status == 200
+                        grants.append(grant)
+                old, grant = grants
+                device_id, token = grant["subject_id"], grant["access_token"]
+                assert old["subject_id"] != device_id and old["access_token"] != token
+                status, policy = await _paired_policy(client, port, device_id, token)
+                assert status == 200 and policy["version"] == "v1" and policy["policy_id"] == "desk"
+                headers = {
+                    "Authorization": f"Bearer {token}", "X-StackChan-Device-Id": device_id,
+                    "X-StackChan-Policy-Version": policy["version"],
+                }
+                # Re-pairing creates a new identity; neither token may cross to the other identity.
+                for target, foreign_token in ((device_id, old["access_token"]), (old["subject_id"], token)):
+                    assert (await _paired_policy(client, port, target, foreign_token))[0] == 403
+                    with pytest.raises(InvalidStatus) as denied:
+                        async with connect(url, ssl=client, proxy=None, additional_headers={
+                            **headers, "Authorization": f"Bearer {foreign_token}", "X-StackChan-Device-Id": target,
+                        }):
+                            pytest.fail("cross-device token accepted")
+                    assert denied.value.response.status_code == 401
+                with pytest.raises(InvalidStatus) as denied:
+                    async with connect(url, ssl=client, proxy=None, additional_headers={
+                        **headers, "X-StackChan-Policy-Version": "wrong",
+                    }):
+                        pytest.fail("wrong policy version accepted")
+                assert denied.value.response.status_code == 401
+                intent = {
+                    "schema_version": "0.1", "notification_id": "paired-notice", "delivery_id": "paired-delivery",
+                    "device_id": device_id, "event_ids": ["event-1"], "priority": 10, "policy_version": "v1",
+                    "generation": 17, "expires_at": "2099-01-01T00:00:00.000Z",
+                    "presentation_policy": {"ui": True, "audio": False, "motion": False, "tts": False},
+                }
+                assert dispatcher.enqueue(intent)
+                async with connect(url, ssl=client, proxy=None, additional_headers=headers) as socket:
+                    async with asyncio.timeout(5):
+                        while True:
+                            frame = validate_device_stream_envelope(json.loads(await socket.recv()))
+                            assert frame["device_id"] == device_id and frame["policy_version"] == "v1"
+                            assert frame["generation"] == 17
+                            if frame["type"] == "notification.intent":
+                                assert validate_notification_intent(frame["payload"]) == intent
+                                break
+                            assert frame["type"] == "heartbeat"
+                        with SecurityStore(db, hasher=TokenHasher(PEPPER.encode()), existing_only=True) as writer_store:
+                            if revocation == "grant":
+                                assert writer_store.revoke_grant_by_token(token)
+                            else:
+                                PolicyService(writer_store).revoke("desk", "v1")
+                        with pytest.raises(ConnectionClosed):
+                            while True:
+                                frame = json.loads(await socket.recv())
+                                assert frame["type"] == "heartbeat"
+                        assert socket.close_code == 1008
+                status, _ = await _paired_policy(client, port, device_id, token)
+                assert status == 403  # ApiGate treats an explicitly revoked grant as forbidden.
+                with pytest.raises(InvalidStatus) as denied:
+                    async with connect(url, ssl=client, proxy=None, additional_headers=headers):
+                        pytest.fail("revoked grant or policy reconnected")
+                assert denied.value.response.status_code == 401
+                # The serving connection remains read-only throughout the integration.
+                with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                    reader_store.revoke_grant_by_token(old["access_token"])
 
     asyncio.run(exercise())

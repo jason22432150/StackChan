@@ -121,6 +121,10 @@ LAN 入口只接受指定 TCP peer 的建立與領取請求；即使帶有效管
 
 兩個 listener 共用生命週期，均先完成綁定才開始服務；任一綁定／啟動失敗或服務取消時會關閉已建立的 listener。2026-11-18 新增 20 項測試：LAN 綁定位址與 TCP peer 使用替身，實際 TLS socket 僅綁定 loopback，驗證跨入口成功、來源與路徑拒絕、偽造轉送標頭、人工拒絕、重啟、CLI 參數轉交及失敗／取消清理。配對 CLI 專項共 37/37；完整 pytest 322/322，host CTest 31/31。本輪未開真實 LAN listener、改動韌體、寫入裝置 NVS 或 eFuse。真實網卡綁定、CoreS3 HTTPS、實機 RAM 憑證與 Xiaozhi 共存仍未驗收。
 
+2026-11-18 補上雙入口配對至 policy／stream 的整合驗收（`test_split_pairing_feeds_existing_read_only_policy_and_stream`，grant／policy 撤銷兩個案例）。在配對前先開啟獨立的唯讀 SQLite connection 與同埠 policy／WebSocket listener；配對取得的新身分、grant 與綁定可立即被既有服務讀取，不須重啟服務。關閉配對 listener 後，新憑證仍可讀政策、通過穩定門檻並收到契約有效的 heartbeat／notification.intent。兩次配對的憑證不可跨裝置使用，錯誤政策版本不可升級。經另一個可寫 connection 撤銷 grant 或政策後，既有串流以 1008 關閉，policy GET 回 403，重新升級遭拒；唯讀服務 connection 的寫入嘗試亦遭 SQLite 拒絕。
+
+完整 pytest 324/324、host CTest 31/31。產品程式碼無須修改；整合使用同程序的獨立資料庫 connections，LAN 綁定及 TCP peer 仍為替身、TLS／WebSocket 使用真實 loopback socket，穩定門檻縮為測試值。此證據不代表 CoreS3 已收到通知、真實 LAN 可用或實機 R-006 時限通過；實機 RAM 憑證、重啟、資源用量與 Xiaozhi 共存仍待驗證。
+
 ## 7. TTL、資料保留、背壓
 
 - TTL 僅控制**是否仍值得主動呈現**，資料保留則控制 Bridge／Coordinator 的歷史清理。
