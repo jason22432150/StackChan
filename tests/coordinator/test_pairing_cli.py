@@ -49,6 +49,7 @@ def bench(tmp_path, monkeypatch):
             "valid_until": "2099-01-01T00:00:00Z",
         })
     ca = trustme.CA()
+    ca.cert_pem.write_to_path(tmp_path / "ca.pem")
     identity = ca.issue_cert("127.0.0.1")
     cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
     identity.cert_chain_pems[0].write_to_path(cert)
@@ -289,6 +290,7 @@ def split_pairing(bench, monkeypatch):
     async def launch():
         db, _, client = bench
         authority = trustme.CA()
+        authority.cert_pem.write_to_path(db.parent / "ca.pem")
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         authority.issue_cert("127.0.0.1").configure_cert(tls)
         authority.configure_trust(client)
@@ -301,6 +303,27 @@ def split_pairing(bench, monkeypatch):
                 yield tuple(server.sockets[0].getsockname()[1] for server in servers)
 
     return launch, device_peer, calls
+
+
+@pytest.mark.parametrize("target", ["admin", "device"])
+def test_manual_confirmation_cli_targets_split_admin_only(bench, split_pairing, monkeypatch, target):
+    db, _, client = bench
+    launch, _, _ = split_pairing
+    monkeypatch.setenv("STACKCHAN_PAIRING_ADMIN_TOKEN", ADMIN)
+
+    async def exercise():
+        async with launch() as (device, admin):
+            challenge, claim = await _start(client, device)
+            result = await asyncio.to_thread(cli.main, [
+                "confirm-pairing", "--port", str(admin if target == "admin" else device),
+                "--ca", str(db.parent / "ca.pem"), "--pairing-id", challenge["pairing_id"],
+                "--user-code", challenge["user_code"], "--approve",
+            ])
+            assert result == (0 if target == "admin" else 1)
+            status, _, _ = await _post(client, device, f"{START}/{challenge['pairing_id']}/complete", **{CLAIM: claim})
+            assert status == (200 if target == "admin" else 403)
+
+    asyncio.run(exercise())
 
 
 def test_split_pairing_device_cannot_confirm_and_admin_cannot_claim(bench, split_pairing):
@@ -322,6 +345,157 @@ def test_split_pairing_device_cannot_confirm_and_admin_cannot_claim(bench, split
             assert (await _post(tls, device, path, **{CLAIM: claim}))[0] == 401
         assert [host for host, _ in calls] == ["192.168.1.10", "127.0.0.1"]
         assert all(options["start_serving"] is False for _, options in calls)
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_manual_confirmation_cli_uses_real_tls(bench, monkeypatch, capsys, approved):
+    db, args, client = bench
+    monkeypatch.setenv("STACKCHAN_PAIRING_ADMIN_TOKEN", ADMIN)
+    monkeypatch.delenv("STACKCHAN_SECURITY_PEPPER", raising=False)  # Client never opens the database.
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(args[args.index("--cert") + 1], args[args.index("--key") + 1])
+
+    async def exercise():
+        with SecurityStore(db, hasher=TokenHasher(PEPPER.encode()), existing_only=True) as store:
+            async with await pairing_server.serve_device_pairing(
+                PairingService(store), ApiGate(StoreBackedTokenDirectory(store)), tls, port=0,
+            ) as server:
+                port = server.sockets[0].getsockname()[1]
+                challenge, claim = await _start(client, port)
+                values = ["confirm-pairing", "--port", str(port), "--ca", str(db.parent / "ca.pem"),
+                          "--pairing-id", challenge["pairing_id"], "--user-code", challenge["user_code"],
+                          "--approve" if approved else "--reject"]
+                assert await asyncio.to_thread(cli.main, values) == 0
+                assert store.get_pairing(challenge["pairing_id"])["status"] == ("approved" if approved else "rejected")
+                status, _, response = await _post(
+                    client, port, f"{START}/{challenge['pairing_id']}/complete", **{CLAIM: claim},
+                )
+                assert status == (200 if approved else 401)
+                output = capsys.readouterr()
+                assert output.out == ("Pairing approved\n" if approved else "Pairing rejected\n")
+                assert not output.err
+                assert ADMIN not in output.out and claim not in output.out
+                assert response.get("access_token", "never-output") not in output.out
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("problem", ["wrong-code", "wrong-token", "untrusted-ca", "hostname", "no-server"])
+def test_manual_confirmation_cli_fails_without_approving(bench, monkeypatch, capsys, problem):
+    db, args, client = bench
+    monkeypatch.setenv("STACKCHAN_PAIRING_ADMIN_TOKEN", "wrong-token" if problem == "wrong-token" else ADMIN)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(args[args.index("--cert") + 1], args[args.index("--key") + 1])
+    if problem == "untrusted-ca":
+        trustme.CA().cert_pem.write_to_path(db.parent / "ca.pem")
+    elif problem == "hostname":
+        authority = trustme.CA()
+        authority.cert_pem.write_to_path(db.parent / "ca.pem")
+        wrong_identity = authority.issue_cert("wrong-host.invalid")
+
+    async def exercise():
+        with SecurityStore(db, hasher=TokenHasher(PEPPER.encode()), existing_only=True) as store:
+            async with await pairing_server.serve_device_pairing(
+                PairingService(store), ApiGate(StoreBackedTokenDirectory(store)), tls, port=0,
+            ) as server:
+                port = server.sockets[0].getsockname()[1]
+                challenge = (await _start(client, port))[0]
+                if problem == "hostname":
+                    wrong_identity.configure_cert(tls)
+                if problem == "no-server":
+                    server.close()
+                    await server.wait_closed()
+                code = ("AAAAAA" if challenge["user_code"] != "AAAAAA" else "BBBBBB") if problem == "wrong-code" else challenge["user_code"]
+                assert await asyncio.to_thread(cli.main, [
+                    "confirm-pairing", "--port", str(port), "--ca", str(db.parent / "ca.pem"),
+                    "--pairing-id", challenge["pairing_id"], "--user-code", code, "--approve",
+                ]) == 1
+                assert store.get_pairing(challenge["pairing_id"])["status"] == "pending"
+                output = capsys.readouterr()
+                assert not output.out and "confirmation failed" in output.err
+                assert ADMIN not in output.err and code not in output.err
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("problem", ["missing-token", "header-token", "id", "code", "port", "decision", "both", "host"])
+def test_manual_confirmation_cli_rejects_invalid_input_before_network(bench, monkeypatch, problem):
+    db, _, _ = bench
+    monkeypatch.setenv("STACKCHAN_PAIRING_ADMIN_TOKEN", "bad\r\nheader" if problem == "header-token" else ADMIN)
+    if problem == "missing-token":
+        monkeypatch.delenv("STACKCHAN_PAIRING_ADMIN_TOKEN")
+    values = ["confirm-pairing", "--port", "9444", "--ca", str(db.parent / "ca.pem"),
+              "--pairing-id", "pair_0123456789abcdef", "--user-code", "ABC123", "--approve"]
+    if problem in ("id", "code", "port"):
+        key = {"id": "--pairing-id", "code": "--user-code", "port": "--port"}[problem]
+        values[values.index(key) + 1] = {"id": "../complete", "code": "abc", "port": "0"}[problem]
+    elif problem == "decision":
+        values.remove("--approve")
+    elif problem == "both":
+        values.append("--reject")
+    elif problem == "host":
+        values += ["--host", "192.168.1.10"]
+    monkeypatch.setattr("http.client.HTTPSConnection", lambda *a, **k: pytest.fail("invalid input opened a connection"))
+    if problem in ("id", "code", "port", "header-token"):
+        assert cli.main(values) == 1
+    else:
+        with pytest.raises(SystemExit) as error:
+            cli.main(values)
+        assert error.value.code == 2
+
+
+@pytest.mark.parametrize("problem", [
+    "redirect", "unauthorized", "duplicate-length", "oversize", "chunked", "truncated",
+    "bad-json", "wrong-decision", "grant-body", "missing-field",
+])
+def test_manual_confirmation_cli_refuses_malformed_acknowledgement(bench, monkeypatch, capsys, problem):
+    db, args, _ = bench
+    monkeypatch.setenv("STACKCHAN_PAIRING_ADMIN_TOKEN", ADMIN)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(args[args.index("--cert") + 1], args[args.index("--key") + 1])
+    body = json.dumps({
+        "schema_version": "0.1", "error": "unauthorized", "message": "approved", "retryable": False,
+    }).encode()
+    if problem == "bad-json":
+        body = b"not json"
+    elif problem == "wrong-decision":
+        body = body.replace(b"unauthorized", b"forbidden")
+    elif problem == "grant-body":
+        body = json.dumps({"access_token": ADMIN}).encode()
+    elif problem == "missing-field":
+        body = b'{"schema_version":"0.1","error":"unauthorized"}'
+    length = 4097 if problem == "oversize" else len(body) + (1 if problem == "truncated" else 0)
+    extra = {
+        "redirect": "Location: https://example.invalid/\r\n",
+        "duplicate-length": f"Content-Length: {length}\r\n", "chunked": "Transfer-Encoding: chunked\r\n",
+    }.get(problem, "")
+    status = "302 Found" if problem == "redirect" else "401 Unauthorized" if problem == "unauthorized" else "200 OK"
+    response = (f"HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\n{extra}\r\n").encode() + body
+    requests = []
+
+    async def handler(reader, writer):
+        try:
+            requests.append(await pairing_server._read_request(reader))
+            writer.write(response)
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def exercise():
+        async with await asyncio.start_server(handler, "127.0.0.1", 0, ssl=tls) as server:
+            port = server.sockets[0].getsockname()[1]
+            assert await asyncio.to_thread(cli.main, [
+                "confirm-pairing", "--port", str(port), "--ca", str(db.parent / "ca.pem"),
+                "--pairing-id", "pair_0123456789abcdef", "--user-code", "ABC123", "--approve",
+            ]) == 1
+        assert len(requests) == 1  # No retry or redirect, including on ambiguous acknowledgement.
+        assert requests[0][1].endswith("/confirm")
+        output = capsys.readouterr()
+        assert not output.out and "confirmation failed" in output.err
+        assert ADMIN not in output.err and "ABC123" not in output.err
 
     asyncio.run(exercise())
 

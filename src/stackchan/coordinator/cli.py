@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import http.client
 import os
 import ssl
 import sys
@@ -15,6 +16,7 @@ from typing import Sequence
 from stackchan.contracts.authz import ApiGate
 from stackchan.coordinator.device_stream_server import serve_device_stream, validate_device_listener
 from stackchan.coordinator.mvp_dispatcher import create_mvp_notification_dispatcher
+from stackchan.coordinator.pairing_admin import confirm_pairing
 from stackchan.coordinator.pairing_server import serve_device_pairing, serve_lan_device_pairing, validate_pairing_listener
 from stackchan.coordinator.policy_lease import DevicePolicyLeaseService
 from stackchan.coordinator.runtime_limits import CORE_S3_MVP_RUNTIME_LIMITS
@@ -88,10 +90,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     pairing.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
     pairing.add_argument("--device-ip", help="the only peer IPv4 allowed with LAN pairing")
     pairing.add_argument("--admin-port", type=int, help="confirm-only loopback TLS port, required with LAN pairing")
+    confirm = subcommands.add_parser("confirm-pairing", help="manually approve or reject a pairing over loopback TLS")
+    confirm.add_argument("--port", required=True, type=int, help="local pairing administrator TLS port")
+    confirm.add_argument("--ca", required=True, type=Path, help="trusted Coordinator CA PEM")
+    confirm.add_argument("--pairing-id", required=True, help="pairing ID from the device challenge")
+    confirm.add_argument("--user-code", required=True, help="six-character code verified with the device")
+    decision = confirm.add_mutually_exclusive_group(required=True)
+    decision.add_argument("--approve", action="store_true", help="approve only after checking the device code")
+    decision.add_argument("--reject", action="store_true", help="reject this pairing")
     serve.add_argument("--generation", required=True, type=int, help="CoreS3 Coordinator generation")
     serve.add_argument("--listen", default="127.0.0.1", help="loopback or a private LAN IPv4 address")
     serve.add_argument("--device-ip", help="the only peer IPv4 allowed with a private LAN listener")
     args = parser.parse_args(argv)
+    if args.command == "confirm-pairing":
+        token = os.environ.get("STACKCHAN_PAIRING_ADMIN_TOKEN", "")
+        if not token:
+            confirm.error("set STACKCHAN_PAIRING_ADMIN_TOKEN to an existing administrator token")
+        try:
+            confirm_pairing(port=args.port, ca=args.ca, pairing_id=args.pairing_id, user_code=args.user_code,
+                            approved=args.approve, admin_token=token)
+        except (OSError, ValueError, http.client.HTTPException, RecursionError):
+            print("error: pairing confirmation failed; check administrator endpoint, trust and challenge", file=sys.stderr)
+            return 1
+        print("Pairing approved" if args.approve else "Pairing rejected")
+        return 0
     command = serve if args.command == "serve-device" else pairing
     if not 0 <= args.port <= 65535:
         command.error("--port must be between 0 and 65535")

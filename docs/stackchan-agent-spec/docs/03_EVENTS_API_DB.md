@@ -125,6 +125,16 @@ LAN 入口只接受指定 TCP peer 的建立與領取請求；即使帶有效管
 
 完整 pytest 324/324、host CTest 31/31。產品程式碼無須修改；整合使用同程序的獨立資料庫 connections，LAN 綁定及 TCP peer 仍為替身、TLS／WebSocket 使用真實 loopback socket，穩定門檻縮為測試值。此證據不代表 CoreS3 已收到通知、真實 LAN 可用或實機 R-006 時限通過；實機 RAM 憑證、重啟、資源用量與 Xiaozhi 共存仍待驗證。
 
+管理員可用 `confirm-pairing` 明確核准或拒絕指定配對。先將既有管理員 token 經本機憑證管理方式提供於 `STACKCHAN_PAIRING_ADMIN_TOKEN`，再執行下列命令；範例中的 ID 與代碼須換成實際 challenge，並與裝置顯示的確認碼核對。此命令不讀取安全資料庫、不需要 pepper、不建立管理員身分，也不領取裝置 grant。
+
+```powershell
+stackchan coordinator confirm-pairing --port 9444 --ca coordinator-ca.pem --pairing-id pair_0123456789abcdef --user-code ABC123 --approve
+```
+
+拒絕時將 `--approve` 換成 `--reject`；兩者必選其一且互斥。LAN 雙入口模式應指定管理埠，僅 loopback 模式則使用原配對埠。命令固定連線 `127.0.0.1` 並驗證 CA 與主機名，無遠端主機或略過 TLS 驗證選項。token 不接受命令列參數；輸出只回報固定結果，不回顯 token、代碼、領取碼或伺服器訊息。要求單一有效 Content-Length 與最多 4,096 bytes 的確認 JSON，拒絕轉址、Transfer-Encoding、重複長度、截斷及不符合所選決定的確認內容；沿用凍結 API 在 HTTP 200 下回傳 Error 形狀確認的既有行為。連線或確認失敗不自動重試；未收到有效回覆時，操作可能已由伺服器處理，須先查明配對狀態再重送。
+
+2026-11-18：新增管理員 CLI 專項 27/27，涵蓋真實 loopback TLS 核准／拒絕、雙入口管理埠成功與裝置埠拒絕、錯 token／代碼、CA／主機名不符、無服務、輸入檢查與異常 HTTP 回應；完整 pytest 351/351、host CTest 31/31。LAN 位址與來源仍使用替身，未開真實 LAN listener 或操作裝置。此入口需要已知配對 ID；目前 CoreS3 頁面只顯示確認碼，本機待核准配對查詢入口仍待實作。實機 LAN、RAM 憑證、重啟及 Xiaozhi 共存驗收仍未完成。
+
 ## 7. TTL、資料保留、背壓
 
 - TTL 僅控制**是否仍值得主動呈現**，資料保留則控制 Bridge／Coordinator 的歷史清理。
