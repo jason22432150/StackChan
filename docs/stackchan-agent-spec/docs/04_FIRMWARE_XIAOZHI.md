@@ -161,6 +161,12 @@ ESP-IDF 6.1 隔離映像完整建置 2,529 步通過；`stack-chan.bin` 為 `0x3
 
 下一步的待批准操作為 COM8 **ROM 模式唯讀辨識與 NVS 雙份備份**，包含操作員切入 ROM 及完成後恢復正常開機；不包含燒錄。操作員確認已在 ROM 模式後，先用 ESP-IDF Python 執行 esptool `--chip esp32s3 --port COM8 --before no-reset --after no-reset --no-stub read-mac` 核對 USB 身分，再執行既有 `firmware.capture_nvs_backup --port COM8 --table-offset 0x8000 --output-parent firmware/build/p204-bench-private`。工具先驗證分割表，再依表內範圍雙讀 NVS；結果與 9445 映像分割表作離線比對。若辨識、讀取或比對不符即停止。上述為尚未執行的具體計畫；須取得明確批准後才可開啟序列埠，實際燒錄位置與回復方案仍須另行審查。
 
+2026-11-18，使用者批准上述 ROM 唯讀流程，並確認已依 [M5Stack 官方方式](https://docs.m5stack.com/en/arduino/m5cores3/program) 長按 RESET／RST 至綠燈亮後放開，進入下載模式。COM8 的 USB VID/PID／序號先行核對，再以 esptool 5.6.0 `no-reset`／`no-stub` 的 `read-mac` 確認 ESP32-S3（rev v0.2），ROM MAC 與 USB 序號一致。以既有捕捉工具的 `_read_flash` 與驗證函式依序讀取 `0x8000` 的 4 KiB 分割表 sector，再按有效 MD5 表內範圍獨立讀取兩份 NVS；本輪另行建立已核對絕對路徑的私人捕捉目錄，不自動刪除失敗資料。
+
+兩份備份各 16,384 bytes，NVS 為 `0x9000`／`0x4000`，SHA-256 均為 `52a1637f14601ff7b912ea9512dfb38381ab14a2d76f0e3f47e4324cb054e59b`。捕捉分割表與 9445 映像的完整二進位表逐位元組相同，sector 尾部為全 FF；再以 `firmware.verify_nvs_backup --target-binary-partition-table` 離線複驗通過。原始備份、分割表與序列紀錄存於 `firmware/build/p204-bench-private/cores3-nvs-20261118-dkhnaway/`，Git 忽略且具受限 ACL；去除私有路徑及原始資料的證據在 `evidence/p204_cores3_nvs_capture_20261118.json`。這證明兩次讀取一致及來源／目標分割配置相容，不代表備份已實際回復成功，也不代表已有現行 app／整片 Flash 的回復映像。
+
+讀取完成後，再次 `read-mac` 並使用已批准的 watchdog reset 恢復開機；此操作使用重設暫存器，未執行 Flash／eFuse 寫入。最初序列判定僅比對少數標籤而漏掉 `esp_image`／`SystemInfo`；額外的 ROM 再連線發生 Write timeout，未執行其預定的 hard-reset。後續核對原始紀錄含 `SystemInfo` 啟動訊息，操作員亦確認原 StackChan／Xiaozhi 畫面恢復且觸控可操作，才將恢復開機記為通過。未觀察到完整 SPI flash boot 訊息，不能把該欄誤標為通過；語音、網路重連、Agent 通知、現行啟動槽及備份回復仍未驗收。本輪沒有燒錄、清除 Flash、上傳 stub 或寫入 NVS／eFuse，P2-04 保留未完成。
+
 ## 4. 狀態仲裁矩陣
 
 P2-04 的獨立控制器核心使用固定 RAM，最多保留四個待派送識別碼及其單調時鐘期限。這是實作上限；MVP 呼叫端應使用 `kCoreS3MvpRuntimeProfile`（經 `sanitizeRuntimeProfile`）。控制器從 Suspended 開始，只有當新連線送出通過穩定門檻的心跳後才可收取及取出通知。政策到期、心跳逾時、連線撤銷或時鐘倒退會阻止取件並清除佇列。心跳不延長政策期限。

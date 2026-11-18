@@ -1,0 +1,68 @@
+{
+  "timestamp_utc": "2026-11-18T03:05:44.063227+00:00",
+  "port": "COM8",
+  "chip": "ESP32-S3",
+  "rom_mac_matches_usb": true,
+  "table_offset": "0x8000",
+  "table_md5_valid": true,
+  "nvs_offset": "0x9000",
+  "nvs_size": 16384,
+  "independent_copies": 2,
+  "nvs_sha256": "52a1637f14601ff7b912ea9512dfb38381ab14a2d76f0e3f47e4324cb054e59b",
+  "table_sector_sha256": "70860a23158ec0a1a26d5670f5fac4e54657364f01013736e385647f14b87ade",
+  "target_partition_table_sha256": "48da0866f56d9d8eb1fe786412984d8f1a4a01b3f13f965621fcb916761e1a4b",
+  "partition_table_matches_target": true,
+  "source_sector_tail_erased": true,
+  "target_firmware_sha256": "9440c93901eded259792f6ffe7ca8bbc949bafaa5b0013cdd25a4bd98d8ca92b",
+  "before": "no-reset",
+  "after": "no-reset",
+  "stub_uploaded": false,
+  "flash_written": false,
+  "backup_restore_tested": false,
+  "normal_boot_restored": true,
+  "watchdog_reset_command_succeeded": true,
+  "usb_returned_after_reset": true,
+  "post_reset_serial_bytes": 125,
+  "flash_boot_log_observed": false,
+  "post_reset_serial_access": "read-only; DTR and RTS disabled before opening",
+  "observed_post_reset_log_tags": [
+    "SystemInfo",
+    "esp_image"
+  ],
+  "original_application_startup_log_observed": true,
+  "additional_rom_probe_after_watchdog": {
+    "result": "serial_write_timeout",
+    "hard_reset_executed": false,
+    "flash_write_executed": false
+  },
+  "normal_boot_restoration_pending_operator_confirmation": false,
+  "backup_files_git_ignored": true,
+  "capture_audit": {
+    "operation": "read-flash",
+    "before": "no-reset",
+    "after": "no-reset",
+    "stub_uploaded": false,
+    "reads": [
+      {
+        "offset": "0x8000",
+        "size": 4096
+      },
+      {
+        "offset": "0x9000",
+        "size": 16384
+      },
+      {
+        "offset": "0x9000",
+        "size": 16384
+      }
+    ]
+  },
+  "operator_confirmed_original_screen_and_touch": true,
+  "boot_verification_basis": [
+    "SystemInfo startup log",
+    "operator confirmation of original screen and touch"
+  ],
+  "voice_regression_tested": false,
+  "network_reconnection_tested": false,
+  "backup_location": "Git-ignored, access-restricted local bench directory; raw NVS and serial logs not committed"
+}
