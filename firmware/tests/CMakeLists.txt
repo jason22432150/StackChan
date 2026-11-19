@@ -284,6 +284,7 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         policy_lease_http_client_test.cpp
         ../main/stackchan/notifications/policy_lease_http_client.cpp
         ../main/stackchan/notifications/coordinator_https.cpp
+        ../main/stackchan/notifications/coordinator_http_io.cpp
         ../main/stackchan/notifications/policy_lease.cpp
     )
     target_include_directories(policy_lease_http_client_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
@@ -306,6 +307,7 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/stream_provision.cpp
         ../main/stackchan/notifications/policy_lease_http_client.cpp
         ../main/stackchan/notifications/coordinator_https.cpp
+        ../main/stackchan/notifications/coordinator_http_io.cpp
         ../main/stackchan/notifications/policy_lease.cpp
         ../main/stackchan/notifications/runtime_limits.cpp
     )
@@ -333,6 +335,7 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/stream_provision.cpp
         ../main/stackchan/notifications/policy_lease_http_client.cpp
         ../main/stackchan/notifications/coordinator_https.cpp
+        ../main/stackchan/notifications/coordinator_http_io.cpp
         ../main/stackchan/notifications/policy_lease.cpp
         ../main/stackchan/notifications/runtime_limits.cpp
         ../main/stackchan/notifications/device_stream_tls_client.cpp
@@ -403,4 +406,15 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
     target_include_directories(personal_pending_product_loop_test PRIVATE ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(personal_pending_product_loop_test PRIVATE cxx_std_17)
     add_test(NAME personal_pending_product_loop_test COMMAND $<TARGET_FILE:personal_pending_product_loop_test>)
+
+    add_executable(personal_pending_http_client_test
+        personal_pending_http_client_test.cpp
+        ../main/stackchan/notifications/personal_pending_http_client.cpp
+        ../main/stackchan/notifications/coordinator_http.cpp
+        ../main/stackchan/notifications/coordinator_https.cpp
+        ../main/stackchan/notifications/coordinator_http_io.cpp
+    )
+    target_include_directories(personal_pending_http_client_test PRIVATE tls_fakes ../main)
+    target_compile_features(personal_pending_http_client_test PRIVATE cxx_std_20)
+    add_test(NAME personal_pending_http_client_test COMMAND $<TARGET_FILE:personal_pending_http_client_test>)
 endif()

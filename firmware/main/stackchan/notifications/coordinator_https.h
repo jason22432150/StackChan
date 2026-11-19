@@ -19,4 +19,13 @@ std::optional<CoordinatorHttpsResponse> requestCoordinatorHttps(
     const std::string& host, std::uint16_t port, const std::string& ca_pem,
     const std::string& request, std::size_t max_response_bytes, int timeout_ms);
 
+/**
+ * 個人版 LAN cleartext（無 TLS）。契約與 HTTPS 相同：拒 redirect、依 Content-Length 讀完。
+ * Production／不可信網路請改用 requestCoordinatorHttps。
+ */
+std::optional<CoordinatorHttpsResponse> requestCoordinatorHttp(
+    const std::string& host, std::uint16_t port, const std::string& request,
+    std::size_t max_response_bytes, int timeout_ms);
+
 }  // namespace stackchan::notifications
+
