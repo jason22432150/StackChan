@@ -455,3 +455,79 @@ def test_device_pull_pending_requires_device_token(
     )
     assert status == 403
     assert wrong["error"]["code"] == "forbidden"
+
+
+def test_device_ack_pending_drains_queue(
+    pi_server: dict[str, Any], sample_event: dict[str, Any]
+) -> None:
+    device_id = pi_server["device_id"]
+    pending_path = f"/v1/devices/{device_id}/notifications/pending"
+    status, ack_batch = _request(
+        pi_server["base"],
+        "POST",
+        "/v1/events/batch",
+        token=pi_server["token"],
+        body={"bridge_id": "bridge_primary", "epoch": "epoch-pi-1", "events": [sample_event]},
+    )
+    assert status == 200
+    assert ack_batch["accepted_event_ids"] == ["evt_pi_001"]
+
+    status, pending = _request(
+        pi_server["base"],
+        "GET",
+        f"{pending_path}?limit=10",
+        token=pi_server["device_token"],
+    )
+    assert status == 200
+    assert pending["count"] == 1
+    delivery_id = pending["items"][0]["delivery_id"]
+    ack_path = f"{pending_path}/{delivery_id}/ack"
+
+    status, _ = _request(pi_server["base"], "POST", ack_path)
+    assert status == 401
+
+    status, forbidden = _request(
+        pi_server["base"],
+        "POST",
+        f"/v1/devices/other_device/notifications/pending/{delivery_id}/ack",
+        token=pi_server["device_token"],
+    )
+    assert status == 403
+    assert forbidden["error"]["code"] == "forbidden"
+
+    status, acked = _request(
+        pi_server["base"],
+        "POST",
+        ack_path,
+        token=pi_server["device_token"],
+    )
+    assert status == 200
+    assert acked == {"delivery_id": delivery_id, "acked": True, "duplicate": False}
+
+    status, empty = _request(
+        pi_server["base"],
+        "GET",
+        f"{pending_path}?limit=10",
+        token=pi_server["device_token"],
+    )
+    assert status == 200
+    assert empty["count"] == 0
+    assert empty["items"] == []
+
+    status, dup = _request(
+        pi_server["base"],
+        "POST",
+        ack_path,
+        token=pi_server["device_token"],
+    )
+    assert status == 200
+    assert dup == {"delivery_id": delivery_id, "acked": True, "duplicate": True}
+
+    status, missing = _request(
+        pi_server["base"],
+        "POST",
+        f"{pending_path}/dlv_does_not_exist/ack",
+        token=pi_server["device_token"],
+    )
+    assert status == 404
+    assert missing["error"]["code"] == "not_found"

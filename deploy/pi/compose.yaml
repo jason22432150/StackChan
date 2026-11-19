@@ -12,6 +12,7 @@
 #
 # 管理頁：http://<pi-ip>:8443/dashboard （唯讀；瀏覽器貼上 Bridge Token）
 # 裝置 pull：GET /v1/devices/<device_id>/notifications/pending （Device Token）
+# 裝置 ACK：POST /v1/devices/<device_id>/notifications/pending/<delivery_id>/ack （Device Token）
 #
 # 安全注意：預設為明文 HTTP（僅供信任的家庭 LAN 開發）。
 # 正式對 Bridge 通訊前請改用 TLS（STACKCHAN_TLS_CERT／STACKCHAN_TLS_KEY）

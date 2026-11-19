@@ -50,6 +50,7 @@ def gate(tokens: TokenDirectory) -> ApiGate:
 
 
 def test_openapi_routes_declare_required_scopes() -> None:
+    load_route_requirements.cache_clear()
     routes = load_route_requirements()
     assert len(routes) >= 12
     batch = find_route("POST", "/v1/events/batch")
@@ -61,6 +62,11 @@ def test_openapi_routes_declare_required_scopes() -> None:
     device_pending = find_route("GET", "/v1/devices/cores3_1/notifications/pending")
     assert device_pending is not None
     assert device_pending.required_scopes == frozenset({"device:stream"})
+    device_ack = find_route(
+        "POST", "/v1/devices/cores3_1/notifications/pending/dlv_1/ack"
+    )
+    assert device_ack is not None
+    assert device_ack.required_scopes == frozenset({"device:stream"})
 
 
 def test_missing_authorization_is_unauthorized(gate: ApiGate) -> None:

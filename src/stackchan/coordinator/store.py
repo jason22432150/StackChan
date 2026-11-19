@@ -28,7 +28,7 @@ from stackchan.contracts import (
     validate_presentation_receipt,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class CoordinatorStoreError(ValueError):
@@ -141,6 +141,8 @@ class CoordinatorStore:
             self._apply_migration_2()
         if self.schema_version() < 3:
             self._apply_migration_3()
+        if self.schema_version() < 4:
+            self._apply_migration_4()
 
     def _apply_migration_1(self) -> None:
         # executescript 會自行 commit，不可包在外層 BEGIN/COMMIT
@@ -328,6 +330,58 @@ class CoordinatorStore:
         try:
             self._conn.execute(
                 "INSERT INTO schema_migrations(version, applied_at) VALUES (3, ?)",
+                (_utc_now(),),
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def _apply_migration_4(self) -> None:
+        """pending 佇列支援 delivered（裝置 ACK 後不再出現在 pull）。"""
+        # SQLite 無法 ALTER CHECK；重建表並保留既有列。
+        self._conn.executescript(
+            """
+            CREATE TABLE pending_notifications_v4 (
+                delivery_id TEXT PRIMARY KEY,
+                notification_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                event_ids_json TEXT NOT NULL,
+                priority INTEGER NOT NULL CHECK(priority >= 0 AND priority <= 100),
+                policy_version TEXT NOT NULL,
+                generation INTEGER NOT NULL CHECK(generation >= 0),
+                expires_at TEXT NOT NULL,
+                presentation_policy_json TEXT NOT NULL,
+                presentation_profile TEXT,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending', 'expired', 'cancelled', 'delivered')),
+                created_at TEXT NOT NULL
+            );
+
+            INSERT INTO pending_notifications_v4 (
+                delivery_id, notification_id, device_id, event_ids_json, priority,
+                policy_version, generation, expires_at, presentation_policy_json,
+                presentation_profile, status, created_at
+            )
+            SELECT
+                delivery_id, notification_id, device_id, event_ids_json, priority,
+                policy_version, generation, expires_at, presentation_policy_json,
+                presentation_profile, status, created_at
+            FROM pending_notifications;
+
+            DROP TABLE pending_notifications;
+            ALTER TABLE pending_notifications_v4 RENAME TO pending_notifications;
+
+            CREATE INDEX IF NOT EXISTS idx_pending_notifications_status_pri
+                ON pending_notifications(status, priority DESC, created_at ASC);
+            CREATE INDEX IF NOT EXISTS idx_pending_notifications_expires
+                ON pending_notifications(status, expires_at);
+            """
+        )
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (4, ?)",
                 (_utc_now(),),
             )
             self._conn.execute("COMMIT")
@@ -758,6 +812,51 @@ class CoordinatorStore:
                 }
             )
         return items
+
+    def ack_pending_notification(self, *, device_id: str, delivery_id: str) -> str:
+        """
+        裝置確認已接收／呈現一筆 pending。
+
+        回傳：
+        - ``acked``：首次標為 delivered
+        - ``duplicate``：同裝置同 delivery 已 delivered（冪等）
+        - ``missing``：不存在或不屬於該 device_id／非 pending／delivered
+        """
+        if not str(device_id).strip() or not str(delivery_id).strip():
+            raise CoordinatorStoreError("device_id 與 delivery_id 不可為空")
+        self.expire_pending_notifications()
+        row = self._conn.execute(
+            """
+            SELECT device_id, status FROM pending_notifications
+            WHERE delivery_id = ?
+            """,
+            (str(delivery_id),),
+        ).fetchone()
+        if row is None or str(row["device_id"]) != str(device_id):
+            return "missing"
+        status = str(row["status"])
+        if status == "delivered":
+            return "duplicate"
+        if status != "pending":
+            return "missing"
+        cur = self._conn.execute(
+            """
+            UPDATE pending_notifications
+            SET status = 'delivered'
+            WHERE delivery_id = ? AND device_id = ? AND status = 'pending'
+            """,
+            (str(delivery_id), str(device_id)),
+        )
+        if int(cur.rowcount) == 1:
+            return "acked"
+        # 競態：他端剛改狀態
+        again = self._conn.execute(
+            "SELECT status FROM pending_notifications WHERE delivery_id = ?",
+            (str(delivery_id),),
+        ).fetchone()
+        if again is not None and str(again["status"]) == "delivered":
+            return "duplicate"
+        return "missing"
 
     def record_task_conflict(
         self,

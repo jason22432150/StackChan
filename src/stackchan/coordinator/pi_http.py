@@ -8,6 +8,7 @@ Raspberry Pi Coordinator：個人版最小 HTTP 服務。
 - GET  /v1/events            近期事件摘要（需 dashboard:read；不含 Prompt）
 - GET  /v1/notifications/pending  管理頁待派送佇列（TTL／優先）
 - GET  /v1/devices/{id}/notifications/pending  裝置範圍 pull（device:stream）
+- POST /v1/devices/{id}/notifications/pending/{delivery_id}/ack  裝置確認已接收（device:stream）
 - GET  /v1/sync/status       查詢連續 ACK 游標與缺口
 
 刻意保持精簡：stdlib HTTP、Bridge／可選 Device Token、可選 TLS。
@@ -40,6 +41,9 @@ from stackchan.sync.models import BatchInput
 load_route_requirements.cache_clear()
 
 _DEVICE_PENDING_PATH = re.compile(r"^/v1/devices/([^/]+)/notifications/pending$")
+_DEVICE_PENDING_ACK_PATH = re.compile(
+    r"^/v1/devices/([^/]+)/notifications/pending/([^/]+)/ack$"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +170,14 @@ class PiCoordinatorApp:
                         authorization_header,
                         device_pending.group(1),
                         query,
+                    )
+                    return status, payload, "application/json"
+                device_pending_ack = _DEVICE_PENDING_ACK_PATH.match(path)
+                if method == "POST" and device_pending_ack is not None:
+                    status, payload = self._ack_device_pending_notification(
+                        authorization_header,
+                        device_pending_ack.group(1),
+                        device_pending_ack.group(2),
                     )
                     return status, payload, "application/json"
                 if method == "GET" and path == "/v1/sync/status":
@@ -300,6 +312,37 @@ class PiCoordinatorApp:
         items = self.store.list_pending_notifications(limit=limit, device_id=device_id)
         # 韌體 applyPersonalPendingJson 要求 root 恰為 items + count
         return 200, {"items": items, "count": len(items)}
+
+    def _ack_device_pending_notification(
+        self,
+        authorization_header: str | None,
+        device_id: str,
+        delivery_id: str,
+    ) -> tuple[int, dict[str, Any]]:
+        """裝置 ACK：pending → delivered；冪等 duplicate；錯裝置／不存在 → 404。"""
+        path = f"/v1/devices/{device_id}/notifications/pending/{delivery_id}/ack"
+        principal = self.api.gate.authorize("POST", path, authorization_header)
+        if principal is None:
+            raise AuthorizationError("unauthorized", "缺少或無效的 Bearer token", http_status=401)
+        if principal.subject_type != "device" or principal.subject_id != device_id:
+            raise AuthorizationError(
+                "forbidden",
+                "token 與 device_id 不符",
+                http_status=403,
+            )
+        outcome = self.store.ack_pending_notification(device_id=device_id, delivery_id=delivery_id)
+        if outcome == "missing":
+            return 404, {
+                "error": {
+                    "code": "not_found",
+                    "message": "pending delivery 不存在或不屬於此裝置",
+                }
+            }
+        return 200, {
+            "delivery_id": delivery_id,
+            "acked": True,
+            "duplicate": outcome == "duplicate",
+        }
 
     def _sync_status(
         self,

@@ -240,6 +240,48 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /v1/devices/{deviceId}/notifications/pending/{deliveryId}/ack:
+    post:
+      operationId: ackDevicePendingNotification
+      summary: Device ACK after successful pull/feed; removes item from pending pull queue
+      tags: [Devices]
+      x-required-scopes: [device:stream]
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ACK accepted or idempotent duplicate
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [delivery_id, acked, duplicate]
+                properties:
+                  delivery_id:
+                    type: string
+                  acked:
+                    type: boolean
+                  duplicate:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: delivery not pending for this device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/deliveries/{deliveryId}/receipts:
     post:
       operationId: submitReceipt

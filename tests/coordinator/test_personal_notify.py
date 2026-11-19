@@ -84,3 +84,23 @@ def test_store_enqueue_list_dedup_and_ttl(tmp_path: Path) -> None:
     assert store.list_pending_notifications(limit=10, device_id="cores3_primary") == []
     assert len(store.list_pending_notifications(limit=10, device_id="cores3_other")) == 1
     store.close()
+
+
+def test_store_ack_pending_drains_and_is_idempotent(tmp_path: Path) -> None:
+    store = CoordinatorStore(tmp_path / "ack.sqlite3")
+    assert store.schema_version() >= 4
+    clock = datetime(2099, 1, 1, 12, 0, tzinfo=timezone.utc)
+    intent = build_personal_notification_intent(
+        _event("evt_ack"), device_id="cores3_primary", now=clock
+    )
+    delivery_id = str(intent["delivery_id"])
+    assert store.enqueue_pending_notification(intent) is True
+    assert store.ack_pending_notification(device_id="cores3_other", delivery_id=delivery_id) == "missing"
+    assert store.ack_pending_notification(device_id="cores3_primary", delivery_id=delivery_id) == "acked"
+    assert store.list_pending_notifications(limit=10, device_id="cores3_primary") == []
+    assert (
+        store.ack_pending_notification(device_id="cores3_primary", delivery_id=delivery_id)
+        == "duplicate"
+    )
+    assert store.ack_pending_notification(device_id="cores3_primary", delivery_id="dlv_missing") == "missing"
+    store.close()
