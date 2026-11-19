@@ -1,0 +1,3 @@
+# 個人版 LAN：允許未加密 NVS 載入 personal_pend（不開 NVS Encryption／不碰 eFuse）。
+# 與 sdkconfig.defaults、sdkconfig.defaults.p204-notifications 併用。
+CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS=y

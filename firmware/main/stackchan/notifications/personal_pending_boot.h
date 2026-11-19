@@ -25,7 +25,8 @@ struct PersonalPendingWorkerRequest {
 
 /**
  * 個人版啟動接線輸入（對齊 host `PersonalPendingBootConfig`）。
- * Token 存 NVS namespace `personal_pend`（需 NVS Encryption）；不進 Kconfig。
+ * Token 存 NVS namespace `personal_pend`；需 `CONFIG_NVS_ENCRYPTION` 或
+ * `CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS`（明文 LAN 例外）；不進 Kconfig 字串。
  */
 struct PersonalPendingBootConfig {
     std::string coordinator_host;
@@ -48,12 +49,15 @@ bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest requ
 
 bool schedulePersonalPendingBoot(const PersonalPendingBootConfig& boot, std::uint64_t utc_ms);
 
-/** 自加密 NVS `personal_pend` 讀取；缺欄／未加密 → nullopt。 */
+/**
+ * 自 NVS `personal_pend` 讀取。
+ * Fail-Closed：缺欄／無權限（無加密且未開 cleartext）→ nullopt。
+ */
 std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigFromNvs();
 
 /**
- * 寫入加密 NVS（佈建／測試）。Fail-Closed：未加密或欄位無效 → false。
- * 正式燒錄前由核准流程呼叫；host CTest 用 nvs_fakes 驗證。
+ * 寫入 NVS（佈建／測試）。Fail-Closed：無權限或欄位無效 → false。
+ * cleartext 路徑僅限個人版 LAN 核准映像；host CTest 用 nvs_fakes 驗證。
  */
 bool savePersonalPendingBootConfigToNvs(const PersonalPendingBootConfig& boot);
 

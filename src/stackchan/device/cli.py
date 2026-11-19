@@ -183,7 +183,7 @@ def _cmd_accept_boot(args: argparse.Namespace) -> int:
         "boot": boot.to_public_dict(),
         "firmware_hook": "trySchedulePersonalPendingBootAfterSntp",
         "nvs_namespace": "personal_pend",
-        "note": "host 驗收通過；裝置需加密 NVS 寫入 personal_pend 後開機才會自動排程",
+        "note": "host 驗收通過；裝置需 personal_pend 寫入且韌體開 NVS Encryption 或 PERSONAL_PENDING_CLEARTEXT_NVS 後才會自動排程",
         "flashed": False,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))

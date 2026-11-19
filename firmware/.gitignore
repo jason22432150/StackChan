@@ -68,3 +68,7 @@ sdkconfig.old
 sdkconfig.defaults.local
 
 xiaozhi-esp32/
+
+# Reviewer / ad-hoc host test trees
+build-review/
+tests/build-review/

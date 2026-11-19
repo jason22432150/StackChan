@@ -36,6 +36,17 @@ config STACKCHAN_AGENT_NOTIFICATIONS
         polling. The display update task only publishes Xiaozhi activity.
         Uses Null UI until P2-08 Avatar integration.
 
+config STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS
+    bool "Allow personal_pend NVS without NVS Encryption (LAN personal only)"
+    default n
+    depends on STACKCHAN_AGENT_NOTIFICATIONS
+    help
+        When enabled, load/save Device Token from unencrypted NVS namespace
+        personal_pend so SNTP boot can schedule the pending worker without
+        CONFIG_NVS_ENCRYPTION (no eFuse / Flash Encryption / Secure Boot).
+        Token is stored in cleartext flash — home LAN only. Default is off
+        (Fail-Closed). Prefer encrypted NVS when available.
+
 config STACKCHAN_AGENT_COORDINATOR_GENERATION
     string "Coordinator generation for the local notification connection"
     depends on STACKCHAN_AGENT_NOTIFICATIONS

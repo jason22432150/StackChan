@@ -158,7 +158,9 @@ int main()
     expect(request->policy_expires_utc_ms == 1'000 + 86'400'000, "ttl applied");
     expect(schedulePersonalPendingBoot(boot, 1'000) && scheduled == 1, "schedule");
 
-#if defined(CONFIG_NVS_ENCRYPTION) && CONFIG_NVS_ENCRYPTION
+#if (defined(CONFIG_NVS_ENCRYPTION) && CONFIG_NVS_ENCRYPTION) ||               \
+    (defined(CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS) &&               \
+     CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS)
     expect(savePersonalPendingBootConfigToNvs(boot), "save nvs");
     expect(commits == 1 && strings["host"] == "192.168.20.148", "persisted host");
     expect(strings["token"] == boot.device_token, "persisted token");
@@ -167,7 +169,7 @@ int main()
     auto loaded = loadPersonalPendingBootConfigFromNvs();
     expect(loaded.has_value(), "load nvs");
     expect(loaded->device_id == "cores3_primary" && loaded->session == 3, "loaded fields");
-    expect(loaded->coordinator_ca_pem.empty(), "cleartext ok without ca");
+    expect(loaded->coordinator_ca_pem.empty(), "http cleartext ok without ca");
 
     expect(trySchedulePersonalPendingBootAfterSntp() && scheduled == 2, "sntp hook schedules from nvs");
     expect(last_request.http.device_id == "cores3_primary", "hook uses nvs device");

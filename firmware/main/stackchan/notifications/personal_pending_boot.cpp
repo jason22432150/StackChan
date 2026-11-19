@@ -13,6 +13,15 @@ std::uint64_t notificationUtcMs() noexcept;
 namespace {
 constexpr const char* kNvsNamespace = "personal_pend";
 
+// 加密 NVS，或個人版明確允許的 cleartext NVS；否則 Fail-Closed。
+#if (defined(CONFIG_NVS_ENCRYPTION) && CONFIG_NVS_ENCRYPTION) ||               \
+    (defined(CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS) &&               \
+     CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS)
+#define STACKCHAN_PERSONAL_PEND_NVS_STORAGE 1
+#else
+#define STACKCHAN_PERSONAL_PEND_NVS_STORAGE 0
+#endif
+
 bool printableField(std::string_view text, std::size_t limit)
 {
     return !text.empty() && text.size() <= limit &&
@@ -46,7 +55,7 @@ bool validBootFields(const PersonalPendingBootConfig& boot)
     return true;
 }
 
-#ifdef CONFIG_NVS_ENCRYPTION
+#if STACKCHAN_PERSONAL_PEND_NVS_STORAGE
 struct NvsHandle {
     nvs_handle_t value;
     ~NvsHandle() { nvs_close(value); }
@@ -110,7 +119,7 @@ bool schedulePersonalPendingBoot(const PersonalPendingBootConfig& boot, std::uin
 
 std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigFromNvs()
 {
-#ifndef CONFIG_NVS_ENCRYPTION
+#if !STACKCHAN_PERSONAL_PEND_NVS_STORAGE
     return std::nullopt;
 #else
     nvs_handle_t raw_handle;
@@ -137,7 +146,7 @@ std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigFromNvs()
         !readString(handle.value, "policy_ver", NotificationController::max_id_bytes, boot.policy_version)) {
         return std::nullopt;
     }
-    // ca_pem 可缺省（cleartext）
+    // ca_pem 可缺省（HTTP cleartext）
     std::string ca;
     if (readString(handle.value, "ca_pem", 3999, ca)) {
         boot.coordinator_ca_pem = std::move(ca);
@@ -157,7 +166,7 @@ std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigFromNvs()
 
 bool savePersonalPendingBootConfigToNvs(const PersonalPendingBootConfig& boot)
 {
-#ifndef CONFIG_NVS_ENCRYPTION
+#if !STACKCHAN_PERSONAL_PEND_NVS_STORAGE
     (void)boot;
     return false;
 #else

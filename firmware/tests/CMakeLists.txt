@@ -272,8 +272,20 @@ add_executable(personal_pending_boot_unencrypted_test
 )
 target_include_directories(personal_pending_boot_unencrypted_test PRIVATE nvs_fakes ../main)
 target_compile_features(personal_pending_boot_unencrypted_test PRIVATE cxx_std_20)
-# 無 CONFIG_NVS_ENCRYPTION：save/load 必須 Fail-Closed
+# 無加密且未開 cleartext：save/load 必須 Fail-Closed
 add_test(NAME personal_pending_boot_unencrypted_test COMMAND $<TARGET_FILE:personal_pending_boot_unencrypted_test>)
+
+add_executable(personal_pending_boot_cleartext_test
+    personal_pending_boot_test.cpp
+    ../main/stackchan/notifications/personal_pending_boot.cpp
+)
+target_include_directories(personal_pending_boot_cleartext_test PRIVATE nvs_fakes ../main)
+target_compile_features(personal_pending_boot_cleartext_test PRIVATE cxx_std_20)
+# 個人版 LAN：允許未加密 NVS personal_pend
+target_compile_definitions(
+    personal_pending_boot_cleartext_test PRIVATE CONFIG_STACKCHAN_PERSONAL_PENDING_CLEARTEXT_NVS=1
+)
+add_test(NAME personal_pending_boot_cleartext_test COMMAND $<TARGET_FILE:personal_pending_boot_cleartext_test>)
 
 # The firmware fetch_repos.py step supplies the pinned ArduinoJson source.
 set(ARDUINO_JSON_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../components/ArduinoJson/src")
