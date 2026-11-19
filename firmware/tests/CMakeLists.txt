@@ -25,6 +25,7 @@ foreach(target notification_product_task_test notification_product_task_disabled
     add_executable(${target}
         notification_product_task_test.cpp
         ../main/stackchan/notifications/notification_product_task.cpp
+        ../main/stackchan/notifications/personal_pending_poll.cpp
     )
     target_include_directories(${target} PRIVATE task_fakes tls_fakes nvs_fakes ../main)
     target_compile_features(${target} PRIVATE cxx_std_20)
@@ -247,6 +248,14 @@ add_executable(personal_pending_ingress_test
 target_include_directories(personal_pending_ingress_test PRIVATE ../main)
 target_compile_features(personal_pending_ingress_test PRIVATE cxx_std_17)
 add_test(NAME personal_pending_ingress_test COMMAND $<TARGET_FILE:personal_pending_ingress_test>)
+
+add_executable(personal_pending_poll_test
+    personal_pending_poll_test.cpp
+    ../main/stackchan/notifications/personal_pending_poll.cpp
+)
+target_include_directories(personal_pending_poll_test PRIVATE ../main)
+target_compile_features(personal_pending_poll_test PRIVATE cxx_std_20)
+add_test(NAME personal_pending_poll_test COMMAND $<TARGET_FILE:personal_pending_poll_test>)
 
 # The firmware fetch_repos.py step supplies the pinned ArduinoJson source.
 set(ARDUINO_JSON_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../components/ArduinoJson/src")

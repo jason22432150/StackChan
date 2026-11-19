@@ -3,6 +3,9 @@
 #include "notification_product_runtime.h"
 #include "notification_pairing_client.h"
 #include "notification_utc_clock.h"
+#include "personal_pending_http_client.h"
+#include "personal_pending_poll.h"
+#include "notification_controller.h"
 
 #include <atomic>
 #include <charconv>
@@ -45,6 +48,12 @@ struct PairingRequest {
     std::uint16_t stream_port;
     std::uint64_t generation;
 };
+
+bool printableField(std::string_view text, std::size_t limit)
+{
+    return !text.empty() && text.size() <= limit &&
+           std::all_of(text.begin(), text.end(), [](unsigned char c) { return c >= 0x21 && c <= 0x7e; });
+}
 
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
 const char* bootstrapResultName(NotificationBootstrapResult result)
@@ -153,6 +162,49 @@ void runNotificationProductPairing(void* argument)
     worker_active.clear();
     vTaskDelete(nullptr);
 }
+
+void runPersonalPendingWorker(void* argument)
+{
+    auto* request = static_cast<PersonalPendingWorkerRequest*>(argument);
+    PersonalPendingWorkerRequest cfg = std::move(*request);
+    delete request;
+
+    initNotificationProductRuntime();
+    const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
+    const auto utc_ms = notificationUtcMs();
+    if (!armPersonalPendingNotificationProductRuntime(cfg.session, cfg.http.device_id, cfg.policy_version,
+                                                      cfg.generation, cfg.policy_expires_utc_ms, utc_ms,
+                                                      now_ms)) {
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+        logNotificationResources("personal_arm_failed", "not_applicable");
+#endif
+        worker_active.clear();
+        vTaskDelete(nullptr);
+        return;
+    }
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+    logNotificationResources("personal_armed", "not_applicable");
+#endif
+
+    PersonalPendingHttpClient client;
+    std::uint64_t last_fetch_ms = 0;
+    while (isPersonalPendingNotificationArmed()) {
+        const auto tick_now = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
+        const auto tick_utc = notificationUtcMs();
+        if (!personalPendingPollOnce(last_fetch_ms, cfg.fetch_interval_ms, cfg.http, client, tick_now, tick_utc,
+                                     xiaozhi_busy.load())) {
+            break;
+        }
+        if (isPersonalPendingNotificationArmed()) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE
+    logNotificationResources("personal_disconnected", "not_applicable");
+#endif
+    worker_active.clear();
+    vTaskDelete(nullptr);
+}
 }  // namespace
 
 void publishNotificationXiaozhiBusy(bool busy) noexcept
@@ -209,12 +261,42 @@ void cancelNotificationProductPairing() noexcept
 {
     pairing_cancelled.store(true);
 }
+
+bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest request)
+{
+    if (notificationUtcMs() == 0 || request.session == 0 || request.fetch_interval_ms == 0 ||
+        request.policy_expires_utc_ms == 0 || request.http.port == 0 ||
+        request.http.coordinator_host.empty() || request.http.coordinator_host.size() > 253 ||
+        !printableField(request.http.device_id, NotificationController::max_id_bytes) ||
+        !printableField(request.http.token, 512) ||
+        !printableField(request.policy_version, NotificationController::max_id_bytes) ||
+        request.http.limit < 1 || request.http.limit > 100 || worker_active.test_and_set()) {
+        return false;
+    }
+    // HTTPS 路徑必須帶 CA；cleartext 允許空 ca_pem。
+    if (!request.http.coordinator_ca_pem.empty() &&
+        (!request.http.coordinator_ca_pem.starts_with("-----BEGIN CERTIFICATE-----") ||
+         request.http.coordinator_ca_pem.size() > 3999)) {
+        worker_active.clear();
+        return false;
+    }
+    auto* heap_request = new (std::nothrow) PersonalPendingWorkerRequest(std::move(request));
+    if (!heap_request ||
+        xTaskCreate(runPersonalPendingWorker, "agent_pending", kWorkerStackBytes, heap_request, kWorkerPriority,
+                    nullptr) != pdPASS) {
+        delete heap_request;
+        worker_active.clear();
+        return false;
+    }
+    return true;
+}
 #else
 bool requestNotificationProductStream(std::uint64_t) { return false; }
 void publishNotificationXiaozhiBusy(bool) noexcept {}
 bool requestNotificationProductPairing(NotificationPairingEndpoint, std::uint16_t, std::uint64_t) { return false; }
 NotificationPairingStatus notificationProductPairingStatus() { return {}; }
 void cancelNotificationProductPairing() noexcept {}
+bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest) { return false; }
 #endif
 
 NotificationStreamRequestResult requestConfiguredNotificationProductStream(std::string_view generation)

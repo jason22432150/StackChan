@@ -6,6 +6,9 @@
 #include <stackchan/notifications/notification_pairing_client.h>
 #include <stackchan/notifications/notification_product_task.h>
 #include <stackchan/notifications/notification_utc_clock.h>
+#include <stackchan/notifications/personal_pending_http_client.h>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -47,6 +50,12 @@ auto completion = stackchan::notifications::NotificationPairingClient::Completio
 const stackchan::notifications::NotificationPairingEndpoint pairing_endpoint{
     "coordinator.example", 9443, "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----",
 };
+bool personal_armed = false;
+bool personal_arm_ok = true;
+unsigned personal_armed_count = 0;
+unsigned personal_feeds = 0;
+unsigned personal_fetches = 0;
+std::string personal_feed_body;
 #if CONFIG_STACKCHAN_RUNTIME_BASELINE
 std::vector<std::pair<std::string_view, std::string_view>> resource_samples;
 #endif
@@ -177,13 +186,38 @@ NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t 
     return bootstrap_result;
 }
 bool isNotificationProductStreamArmed() { return armed; }
+bool armPersonalPendingNotificationProductRuntime(std::uint64_t, std::string_view, std::string_view,
+                                                  std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t)
+{
+    ++personal_armed_count;
+    personal_armed = personal_arm_ok;
+    return personal_arm_ok;
+}
+bool isPersonalPendingNotificationArmed() { return personal_armed; }
+std::size_t feedPersonalPendingNotificationJson(std::string_view body, std::uint64_t, std::uint64_t)
+{
+    ++personal_feeds;
+    personal_feed_body.assign(body);
+    return 1;
+}
 void tickNotificationProductRuntime(std::uint64_t now, std::uint64_t utc, bool busy)
 {
     ++polled;
+    if (personal_armed) {
+        expect(now == 123 && utc == utc_ms, "personal tick clock");
+        personal_armed = polled < 2;
+        return;
+    }
     expect(now == 123 && utc == utc_ms, "tick receives monotonic and wall clock milliseconds");
     expect(busy == (polled == 1), "worker observes both published activity states");
     expect(!requestNotificationProductStream(99), "active stream excludes another worker");
     armed = polled < 2;
+}
+std::optional<PersonalPendingHttpClient::Result> PersonalPendingHttpClient::fetch(const Config& config)
+{
+    ++personal_fetches;
+    expect(config.device_id == "cores3_primary", "personal fetch device");
+    return Result{std::string(R"({"items":[],"count":0})")};
 }
 }  // namespace stackchan::notifications
 
@@ -299,12 +333,42 @@ int main()
     expect(polled == 2 && notificationProductPairingStatus().state == NotificationPairingState::Idle &&
                notificationProductPairingStatus().user_code[0] == '\0',
            "approved pairing enters the stream loop and returns idle after disconnect");
+
+    PersonalPendingWorkerRequest personal{
+        {"192.168.20.148", 8443, "", "device-token", "cores3_primary", 4096, 10000, 50},
+        1,
+        "pol_v1",
+        1,
+        9'000'000'000'000ULL,
+        5000,
+    };
+    personal_arm_ok = false;
+    polled = 0;
+    personal_fetches = 0;
+    personal_feeds = 0;
+    personal_armed_count = 0;
+    expect(requestPersonalPendingNotificationProduct(personal), "personal schedules worker");
+    expect(!requestNotificationProductStream(1), "personal worker excludes stream");
+    runScheduledTask();
+    expect(personal_armed_count == 1 && personal_fetches == 0 && deleted >= 1, "arm failure exits without fetch");
+
+    personal_arm_ok = true;
+    personal_armed = false;
+    polled = 0;
+    personal_fetches = 0;
+    personal_feeds = 0;
+    publishNotificationXiaozhiBusy(true);
+    expect(requestPersonalPendingNotificationProduct(personal), "personal armed path");
+    runScheduledTask();
+    expect(personal_armed_count >= 2 && personal_fetches >= 1 && personal_feeds >= 1 && polled == 2,
+           "personal worker fetch→feed→tick until disarmed");
 #else
     expect(!requestNotificationProductStream(7) && created == 0, "disabled feature does not create tasks");
     expect(requestConfiguredNotificationProductStream("7") == NotificationStreamRequestResult::Rejected && created == 0,
            "configured request cannot bypass the disabled feature");
     expect(!requestNotificationProductPairing(pairing_endpoint, 8443, 1) && created == 0,
            "disabled pairing creates no task");
+    expect(!requestPersonalPendingNotificationProduct({}), "disabled personal pending creates no task");
     cancelNotificationProductPairing();
     expect(notificationProductPairingStatus().state == NotificationPairingState::Idle,
            "disabled feature remains idle");
