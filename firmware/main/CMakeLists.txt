@@ -41,6 +41,8 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/device_stream_ingress.cpp"
     "stackchan/notifications/device_stream_json.cpp"
     "stackchan/notifications/device_stream_tls_client.cpp"
+    "stackchan/notifications/personal_pending_ingress.cpp"
+    "stackchan/notifications/personal_pending_json.cpp"
     "stackchan/notifications/policy_lease.cpp"
     "stackchan/notifications/policy_lease_http_client.cpp"
     "stackchan/notifications/coordinator_https.cpp"

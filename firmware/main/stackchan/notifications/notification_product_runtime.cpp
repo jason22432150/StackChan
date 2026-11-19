@@ -10,6 +10,8 @@
 #include "notification_presenter.h"
 #include "notification_product_loop.h"
 #include "notification_utc_clock.h"
+#include "personal_pending_ingress.h"
+#include "personal_pending_json.h"
 #include "presentation_receipt.h"
 #include "resource_arbiter.h"
 #include "runtime_limits.h"
@@ -25,9 +27,13 @@
 namespace stackchan::notifications {
 namespace {
 
+// 個人版 pending 列表可比單幀 WS 大；上限對齊 sanitize 天花板。
+constexpr std::size_t kPersonalPendingMaxJsonBytes = 4096;
+
 struct ProductRuntime {
     NotificationRuntimeProfile profile = kCoreS3MvpRuntimeProfile;
     DeviceStreamTlsClient client{profile.controller, profile.max_frame_age_ms};
+    PersonalPendingIngress personal{client.controller(), profile.max_frame_age_ms};
     ResourceArbiter arbiter;
     // 裝置端綁 Avatar speech／Motion；host CTest 可 stub device sink。
     AvatarSpeechUi speech_ui{makeDeviceAvatarSpeechSink()};
@@ -38,6 +44,8 @@ struct ProductRuntime {
     FailClosedGuard guard{client.controller(), presenter, &receipts};
     NotificationProductLoop loop{client.controller(), guard, presenter, &receipts};
     bool ready = false;
+    bool personal_armed = false;
+    std::string pending_feed_json;
 };
 
 ProductRuntime& runtime()
@@ -90,7 +98,7 @@ bool armNotificationProductRuntime(const StreamProvision& provision)
     auto& rt = runtime();
     const auto& profile = provision.profile;
     // The client already owns fixed controller and frame-age limits.
-    if (!rt.ready || profile.controller.capacity != rt.profile.controller.capacity ||
+    if (!rt.ready || rt.personal_armed || profile.controller.capacity != rt.profile.controller.capacity ||
         profile.controller.heartbeat_timeout_ms != rt.profile.controller.heartbeat_timeout_ms ||
         profile.controller.stability_ms != rt.profile.controller.stability_ms ||
         profile.max_frame_age_ms != rt.profile.max_frame_age_ms ||
@@ -221,6 +229,59 @@ bool isNotificationProductStreamArmed()
     return rt.ready && rt.client.started();
 }
 
+bool armPersonalPendingNotificationProductRuntime(std::uint64_t session, std::string_view device_id,
+                                                  std::string_view policy_version, std::uint64_t generation,
+                                                  std::uint64_t policy_expires_utc_ms, std::uint64_t utc_ms,
+                                                  std::uint64_t now_ms)
+{
+    auto& rt = runtime();
+    if (!rt.ready || rt.client.started() || rt.personal_armed) {
+        return false;
+    }
+    if (!rt.personal.bind({session, device_id, policy_version, generation, policy_expires_utc_ms}, utc_ms,
+                          now_ms)) {
+        return false;
+    }
+    rt.personal_armed = true;
+    rt.pending_feed_json.clear();
+    return true;
+}
+
+bool isPersonalPendingNotificationArmed()
+{
+    auto& rt = runtime();
+    return rt.ready && rt.personal_armed && rt.personal.bound();
+}
+
+std::size_t feedPersonalPendingNotificationJson(std::string_view pending_json, std::uint64_t /*now_ms*/,
+                                                std::uint64_t /*utc_ms*/)
+{
+    auto& rt = runtime();
+    if (!isPersonalPendingNotificationArmed() || pending_json.empty() ||
+        pending_json.size() > kPersonalPendingMaxJsonBytes) {
+        return 0;
+    }
+    // 根契約預檢；實際 pulse／enqueue 留給 tick，避免與 heartbeat 競態。
+    JsonDocument document;
+    if (deserializeJson(document, pending_json.data(), pending_json.size(),
+                        DeserializationOption::NestingLimit(4))) {
+        return 0;
+    }
+    payload::CompactJsonMatch match(pending_json);
+    serializeJson(document, match);
+    const auto root = document.as<JsonObjectConst>();
+    if (!match.complete() || root.size() != 2 || !root["items"].is<JsonArrayConst>() ||
+        !root["count"].is<unsigned>()) {
+        return 0;
+    }
+    const auto items = root["items"].as<JsonArrayConst>();
+    if (root["count"].as<unsigned>() != items.size() || items.size() > 100) {
+        return 0;
+    }
+    rt.pending_feed_json.assign(pending_json.begin(), pending_json.end());
+    return items.size();
+}
+
 void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, bool xiaozhi_busy)
 {
     auto& rt = runtime();
@@ -229,8 +290,20 @@ void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, 
     }
     // Xiaozhi 優先：先搶占／清屏，再 poll（避免 Busy 期間 dequeue 新通知）。
     applyXiaozhiPriorityTick(rt.presenter, xiaozhi_busy, now_ms);
-    // read_timeout_ms=0：不在 update task 內阻塞等待 socket。
-    (void)notificationProductLoopPollClient(rt.loop, rt.client, now_ms, utc_ms, 0);
+    if (rt.client.started()) {
+        // read_timeout_ms=0：不在 update task 內阻塞等待 socket。
+        (void)notificationProductLoopPollClient(rt.loop, rt.client, now_ms, utc_ms, 0);
+        return;
+    }
+    if (rt.personal_armed && rt.personal.bound()) {
+        const auto body = std::exchange(rt.pending_feed_json, {});
+        const auto outcome = notificationProductLoopPollPersonalPending(
+            rt.loop, rt.personal, body, kPersonalPendingMaxJsonBytes, now_ms, utc_ms);
+        if (outcome == NotificationProductLoop::Outcome::StreamDead) {
+            rt.personal_armed = false;
+            rt.pending_feed_json.clear();
+        }
+    }
 }
 
 }  // namespace stackchan::notifications

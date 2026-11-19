@@ -1,7 +1,8 @@
 """
 個人版裝置 → Pi：拉取待派送通知（HTTP）。
 
-不燒錄、不直連 Avatar／Servo；供 host 驗收與日後 CoreS3 對接。
+不燒錄、不直連 Avatar／Servo；供 host 驗收。
+CoreS3 韌體以 PersonalPendingIngress 接進通知產品迴圈（見 firmware notifications）。
 """
 
 from __future__ import annotations

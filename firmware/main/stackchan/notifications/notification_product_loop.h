@@ -5,11 +5,14 @@
 #include "notification_presenter.h"
 #include "presentation_receipt.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace stackchan::notifications {
 
 class DeviceStreamTlsClient;
+class PersonalPendingIngress;
 
 /**
  * P2-04 產品路徑：常駐控制迴圈的單一 tick 進入點。
@@ -67,6 +70,15 @@ private:
 NotificationProductLoop::Outcome notificationProductLoopPollClient(
     NotificationProductLoop& loop, DeviceStreamTlsClient& client, NotificationProductLoop::Tick now,
     NotificationProductLoop::UtcMs reported_at_utc_ms, int read_timeout_ms = 0);
+
+/**
+ * 個人版 pending 路徑：pulse →（可選）apply JSON → attach session → tick。
+ * ingress 未 bind 時回傳 Idle；pulse 失敗視為 StreamDead（fail-closed）。
+ */
+NotificationProductLoop::Outcome notificationProductLoopPollPersonalPending(
+    NotificationProductLoop& loop, PersonalPendingIngress& ingress, std::string_view pending_json,
+    std::size_t max_json_bytes, NotificationProductLoop::Tick now,
+    NotificationProductLoop::UtcMs reported_at_utc_ms);
 
 /** link_anchor 保留用。 */
 bool notificationProductLoopLinked();

@@ -62,7 +62,25 @@ NotificationBootstrapResult fetchAndArmNotificationProductRuntime(std::uint64_t 
 /** 產品 stream 是否已 upgrade（client.started）。 */
 bool isNotificationProductStreamArmed();
 
-/** 專用通知任務每輪轉發 Xiaozhi Busy／Idle，並 poll 已啟用的 stream。 */
+/**
+ * 個人版：以 HTTP pending 綁定產品迴圈（不開 WebSocket）。
+ * 與 stream arm 互斥；Fail-Closed：未 init／已 stream／參數無效 → false。
+ */
+bool armPersonalPendingNotificationProductRuntime(std::uint64_t session, std::string_view device_id,
+                                                  std::string_view policy_version, std::uint64_t generation,
+                                                  std::uint64_t policy_expires_utc_ms, std::uint64_t utc_ms,
+                                                  std::uint64_t now_ms);
+
+bool isPersonalPendingNotificationArmed();
+
+/**
+ * 餵入一次 Pi pending JSON（呼叫端已完成 HTTP GET）。
+ * 回傳 enqueue 筆數；未 armed 或契約失敗 → 0。
+ */
+std::size_t feedPersonalPendingNotificationJson(std::string_view pending_json, std::uint64_t now_ms,
+                                                std::uint64_t utc_ms);
+
+/** 專用通知任務每輪轉發 Xiaozhi Busy／Idle，並 poll 已啟用的 stream／personal pending。 */
 void tickNotificationProductRuntime(std::uint64_t now_ms, std::uint64_t utc_ms, bool xiaozhi_busy);
 
 }  // namespace stackchan::notifications

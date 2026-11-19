@@ -239,6 +239,15 @@ target_include_directories(device_stream_ingress_test PRIVATE ../main)
 target_compile_features(device_stream_ingress_test PRIVATE cxx_std_17)
 add_test(NAME device_stream_ingress_test COMMAND $<TARGET_FILE:device_stream_ingress_test>)
 
+add_executable(personal_pending_ingress_test
+    personal_pending_ingress_test.cpp
+    ../main/stackchan/notifications/personal_pending_ingress.cpp
+    ../main/stackchan/notifications/notification_controller.cpp
+)
+target_include_directories(personal_pending_ingress_test PRIVATE ../main)
+target_compile_features(personal_pending_ingress_test PRIVATE cxx_std_17)
+add_test(NAME personal_pending_ingress_test COMMAND $<TARGET_FILE:personal_pending_ingress_test>)
+
 # The firmware fetch_repos.py step supplies the pinned ArduinoJson source.
 set(ARDUINO_JSON_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../components/ArduinoJson/src")
 if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
@@ -329,6 +338,8 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/device_stream_tls_client.cpp
         ../main/stackchan/notifications/device_stream_json.cpp
         ../main/stackchan/notifications/device_stream_ingress.cpp
+        ../main/stackchan/notifications/personal_pending_ingress.cpp
+        ../main/stackchan/notifications/personal_pending_json.cpp
         ../main/stackchan/notifications/notification_controller.cpp
     )
     target_include_directories(start_provisioned_stream_test PRIVATE tls_fakes nvs_fakes ../main "${ARDUINO_JSON_INCLUDE}")
@@ -369,8 +380,27 @@ if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
         ../main/stackchan/notifications/device_stream_tls_client.cpp
         ../main/stackchan/notifications/device_stream_json.cpp
         ../main/stackchan/notifications/device_stream_ingress.cpp
+        ../main/stackchan/notifications/personal_pending_ingress.cpp
+        ../main/stackchan/notifications/personal_pending_json.cpp
     )
     target_include_directories(notification_product_loop_poll_test PRIVATE tls_fakes ../main "${ARDUINO_JSON_INCLUDE}")
     target_compile_features(notification_product_loop_poll_test PRIVATE cxx_std_20)
     add_test(NAME notification_product_loop_poll_test COMMAND $<TARGET_FILE:notification_product_loop_poll_test>)
+
+    add_executable(personal_pending_product_loop_test
+        personal_pending_product_loop_test.cpp
+        ../main/stackchan/notifications/notification_product_loop.cpp
+        ../main/stackchan/notifications/basic_notice_text.cpp
+        ../main/stackchan/notifications/fail_closed_guard.cpp
+        ../main/stackchan/notifications/notification_presenter.cpp
+        ${STACKCHAN_NOTICE_MOTION_SOURCES}
+        ../main/stackchan/notifications/resource_arbiter.cpp
+        ../main/stackchan/notifications/notification_controller.cpp
+        ../main/stackchan/notifications/presentation_receipt.cpp
+        ../main/stackchan/notifications/personal_pending_ingress.cpp
+        ../main/stackchan/notifications/personal_pending_json.cpp
+    )
+    target_include_directories(personal_pending_product_loop_test PRIVATE ../main "${ARDUINO_JSON_INCLUDE}")
+    target_compile_features(personal_pending_product_loop_test PRIVATE cxx_std_17)
+    add_test(NAME personal_pending_product_loop_test COMMAND $<TARGET_FILE:personal_pending_product_loop_test>)
 endif()
