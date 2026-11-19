@@ -6,30 +6,13 @@
 #include <string_view>
 
 #include "notification_product_runtime.h"
-#include "personal_pending_http_client.h"
-#include "personal_pending_poll.h"
+#include "personal_pending_boot.h"
 
 namespace stackchan::notifications {
 
 // Local task-context request. True means the worker started, not that TLS
 // succeeded. One worker owns the runtime until bootstrap fails or disconnects.
 bool requestNotificationProductStream(std::uint64_t coordinator_generation);
-
-/**
- * 個人版 pending worker 參數：HTTP pull 設定 + session 綁定。
- * 與 stream／pairing worker 互斥（同一 worker_active）。
- */
-struct PersonalPendingWorkerRequest {
-    PersonalPendingHttpClient::Config http;
-    std::uint64_t session = 1;
-    std::string policy_version;
-    std::uint64_t generation = 0;
-    std::uint64_t policy_expires_utc_ms = 0;
-    std::uint64_t fetch_interval_ms = kDefaultPersonalPendingFetchIntervalMs;
-};
-
-/** True = 已排程 worker；不代表第一次 GET 成功。 */
-bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest request);
 
 enum class NotificationPairingState { Idle, Starting, AwaitingApproval, Connecting, Connected, Failed, Cancelled };
 

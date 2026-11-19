@@ -17,6 +17,7 @@ static const std::string_view _tag = "HAL";
 
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
 #include <stackchan/notifications/notification_product_task.h>
+#include <stackchan/notifications/personal_pending_boot.h>
 #endif
 
 #if CONFIG_STACKCHAN_R006_REVOKE_PROBE
@@ -286,6 +287,10 @@ static void _stackchan_update_task(void* param)
                 if (!is_setup_done) {
                     // Setup when xiaozhi ready
                     GetHAL().startSntp();
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+                    // 個人版：SNTP 後若 NVS personal_pend 有 Device Token 則排程 pending worker
+                    (void)stackchan::notifications::trySchedulePersonalPendingBootAfterSntp();
+#endif
                     view::create_home_indicator([]() { GetHAL().requestWarmReboot(0); }, 0x81DBBD, 0x134233);
                     view::create_status_bar(0x81DBBD, 0x134233);
                     is_setup_done = true;

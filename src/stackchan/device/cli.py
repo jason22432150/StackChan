@@ -2,7 +2,8 @@
 個人版裝置 CLI。
 
 指令：
-  stackchan device pull-pending --coordinator-url URL --device-id ID --token TOKEN
+  stackchan device pull-pending ...
+  stackchan device accept-boot   # Device Token + 啟動設定驗收
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from stackchan.device.boot_config import BootConfigError, PersonalPendingBootConfig
 from stackchan.device.pull_client import DevicePullClient, DevicePullError
 
 
@@ -49,13 +51,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="略過 TLS 驗證（僅限信任 LAN 除錯）",
     )
 
+    accept = sub.add_parser(
+        "accept-boot",
+        help="驗收 Device Token（live pull）並輸出個人版啟動接線摘要（不燒錄）",
+    )
+    accept.add_argument(
+        "--coordinator-url",
+        default=os.environ.get("STACKCHAN_COORDINATOR_URL", ""),
+        help="覆寫 STACKCHAN_COORDINATOR_URL",
+    )
+    accept.add_argument("--limit", type=int, default=5, help="驗收 pull 的 limit")
+    accept.add_argument("--timeout", type=float, default=10.0)
+    accept.add_argument("--ca-file", type=Path, default=None)
+    accept.add_argument("--insecure", action="store_true")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "pull-pending":
             return _cmd_pull_pending(args)
+        if args.command == "accept-boot":
+            return _cmd_accept_boot(args)
         parser.error(f"未知命令: {args.command}")
         return 2
-    except (DevicePullError, OSError, ValueError) as exc:
+    except (BootConfigError, DevicePullError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -91,6 +109,39 @@ def _cmd_pull_pending(args: argparse.Namespace) -> int:
         "items": result.items,
         "delivers_to_cores3_ui": False,
         "error": result.error,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_accept_boot(args: argparse.Namespace) -> int:
+    env = dict(os.environ)
+    if (args.coordinator_url or "").strip():
+        env["STACKCHAN_COORDINATOR_URL"] = args.coordinator_url.strip()
+    boot = PersonalPendingBootConfig.from_env(env)
+    pull_url = (args.coordinator_url or "").strip() or boot.coordinator_base_url()
+    client = DevicePullClient(
+        base_url=pull_url,
+        device_id=boot.device_id,
+        device_token=boot.device_token,
+        timeout_seconds=args.timeout,
+        ca_file=args.ca_file,
+        insecure_skip_verify=bool(args.insecure),
+    )
+    result = client.pull_pending(limit=args.limit)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "device_token_accepted": True,
+        "pull": {
+            "device_id": result.device_id,
+            "count": len(result.items),
+            "ok": result.ok,
+        },
+        "boot": boot.to_public_dict(),
+        "firmware_hook": "trySchedulePersonalPendingBootAfterSntp",
+        "nvs_namespace": "personal_pend",
+        "note": "host 驗收通過；裝置需加密 NVS 寫入 personal_pend 後開機才會自動排程",
+        "flashed": False,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

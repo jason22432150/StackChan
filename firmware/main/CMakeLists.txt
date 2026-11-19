@@ -50,6 +50,7 @@ set(STACK_CHAN_NOTIFICATION_SOURCES
     "stackchan/notifications/coordinator_http_io.cpp"
     "stackchan/notifications/personal_pending_http_client.cpp"
     "stackchan/notifications/personal_pending_poll.cpp"
+    "stackchan/notifications/personal_pending_boot.cpp"
     "stackchan/notifications/notification_pairing_client.cpp"
     "stackchan/notifications/runtime_limits.cpp"
     "stackchan/notifications/stream_bootstrap.cpp"

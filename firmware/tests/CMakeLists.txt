@@ -257,6 +257,24 @@ target_include_directories(personal_pending_poll_test PRIVATE ../main)
 target_compile_features(personal_pending_poll_test PRIVATE cxx_std_20)
 add_test(NAME personal_pending_poll_test COMMAND $<TARGET_FILE:personal_pending_poll_test>)
 
+add_executable(personal_pending_boot_test
+    personal_pending_boot_test.cpp
+    ../main/stackchan/notifications/personal_pending_boot.cpp
+)
+target_include_directories(personal_pending_boot_test PRIVATE nvs_fakes ../main)
+target_compile_features(personal_pending_boot_test PRIVATE cxx_std_20)
+target_compile_definitions(personal_pending_boot_test PRIVATE CONFIG_NVS_ENCRYPTION=1)
+add_test(NAME personal_pending_boot_test COMMAND $<TARGET_FILE:personal_pending_boot_test>)
+
+add_executable(personal_pending_boot_unencrypted_test
+    personal_pending_boot_test.cpp
+    ../main/stackchan/notifications/personal_pending_boot.cpp
+)
+target_include_directories(personal_pending_boot_unencrypted_test PRIVATE nvs_fakes ../main)
+target_compile_features(personal_pending_boot_unencrypted_test PRIVATE cxx_std_20)
+# 無 CONFIG_NVS_ENCRYPTION：save/load 必須 Fail-Closed
+add_test(NAME personal_pending_boot_unencrypted_test COMMAND $<TARGET_FILE:personal_pending_boot_unencrypted_test>)
+
 # The firmware fetch_repos.py step supplies the pinned ArduinoJson source.
 set(ARDUINO_JSON_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/../components/ArduinoJson/src")
 if(EXISTS "${ARDUINO_JSON_INCLUDE}/ArduinoJson.h")
