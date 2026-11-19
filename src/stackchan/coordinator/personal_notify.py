@@ -33,7 +33,8 @@ def build_personal_notification_intent(
     event: dict[str, Any],
     *,
     device_id: str,
-    policy_version: str = "personal-v1",
+    # 與裝置 boot 預設 pol_personal_v1 對齊，避免 receiveItem 拒收
+    policy_version: str = "pol_personal_v1",
     generation: int = 1,
     ttl_seconds: int = 600,
     now: datetime | None = None,

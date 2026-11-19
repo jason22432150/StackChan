@@ -440,9 +440,12 @@ def test_device_pull_pending_requires_device_token(
         token=pi_server["device_token"],
     )
     assert status == 200
+    assert pending["count"] == 1
     assert len(pending["items"]) == 1
+    assert set(pending.keys()) == {"items", "count"}
     assert pending["items"][0]["device_id"] == pi_server["device_id"]
     assert pending["items"][0]["delivery_id"] == "dlv_evt_pi_001"
+    assert pending["items"][0]["policy_version"] == "pol_personal_v1"
 
     status, wrong = _request(
         pi_server["base"],

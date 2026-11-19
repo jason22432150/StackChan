@@ -55,7 +55,8 @@ class PiCoordinatorConfig:
     tls_key: Path | None = None
     device_id: str = "cores3_primary"
     device_token: str = ""
-    policy_version: str = "personal-v1"
+    # 與裝置 boot／NVS 預設一致（firmware personal_pending_boot）
+    policy_version: str = "pol_personal_v1"
     generation: int = 1
     notify_ttl_seconds: int = 600
 
@@ -116,7 +117,7 @@ class PiCoordinatorApp:
         api: CoordinatorSyncApi,
         *,
         device_id: str = "cores3_primary",
-        policy_version: str = "personal-v1",
+        policy_version: str = "pol_personal_v1",
         generation: int = 1,
         notify_ttl_seconds: int = 600,
     ) -> None:
@@ -269,7 +270,8 @@ class PiCoordinatorApp:
         except ValueError as exc:
             raise ValueError("limit 必須為整數") from exc
         items = self.store.list_pending_notifications(limit=limit)
-        return 200, {"items": items}
+        # 與裝置端 feed 契約對齊：items + count
+        return 200, {"items": items, "count": len(items)}
 
     def _list_device_pending_notifications(
         self,
@@ -296,7 +298,8 @@ class PiCoordinatorApp:
         if not 1 <= limit <= 100:
             raise ValueError("limit 必須在 1..100")
         items = self.store.list_pending_notifications(limit=limit, device_id=device_id)
-        return 200, {"items": items}
+        # 韌體 applyPersonalPendingJson 要求 root 恰為 items + count
+        return 200, {"items": items, "count": len(items)}
 
     def _sync_status(
         self,

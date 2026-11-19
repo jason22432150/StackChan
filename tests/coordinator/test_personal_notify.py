@@ -49,12 +49,14 @@ def test_build_intent_is_contract_valid_and_a0() -> None:
     assert intent["presentation_policy"]["motion"] is True
     assert intent["priority"] == 60
     assert intent["expires_at"] == "2026-11-19T00:10:00Z"
+    assert intent["policy_version"] == "pol_personal_v1"
 
 
 def test_store_enqueue_list_dedup_and_ttl(tmp_path: Path) -> None:
     store = CoordinatorStore(tmp_path / "c.sqlite3")
     assert store.schema_version() >= 3
-    clock = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+    # 固定未來時鐘，避免 list_pending 依牆上時間把 TTL 誤判過期
+    clock = datetime(2099, 1, 1, 12, 0, tzinfo=timezone.utc)
     intent = build_personal_notification_intent(
         _event("evt_b"), device_id="cores3_primary", now=clock
     )
@@ -63,6 +65,7 @@ def test_store_enqueue_list_dedup_and_ttl(tmp_path: Path) -> None:
     items = store.list_pending_notifications(limit=10)
     assert len(items) == 1
     assert items[0]["delivery_id"] == intent["delivery_id"]
+    assert items[0]["policy_version"] == "pol_personal_v1"
 
     other = build_personal_notification_intent(
         _event("evt_other"), device_id="cores3_other", now=clock
@@ -77,7 +80,7 @@ def test_store_enqueue_list_dedup_and_ttl(tmp_path: Path) -> None:
         "UPDATE pending_notifications SET expires_at = ? WHERE delivery_id = ?",
         ("2020-01-01T00:00:00Z", intent["delivery_id"]),
     )
-    assert store.expire_pending_notifications(now_iso="2026-11-19T12:00:00Z") == 1
+    assert store.expire_pending_notifications(now_iso="2099-01-01T12:00:00Z") == 1
     assert store.list_pending_notifications(limit=10, device_id="cores3_primary") == []
     assert len(store.list_pending_notifications(limit=10, device_id="cores3_other")) == 1
     store.close()
