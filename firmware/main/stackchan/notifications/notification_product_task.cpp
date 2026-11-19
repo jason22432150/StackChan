@@ -3,6 +3,7 @@
 #include "notification_product_runtime.h"
 #include "notification_pairing_client.h"
 #include "notification_utc_clock.h"
+#include "personal_pending_boot.h"
 #include "personal_pending_http_client.h"
 #include "personal_pending_poll.h"
 #include "notification_controller.h"
@@ -32,8 +33,45 @@ namespace stackchan::notifications {
 namespace {
 std::atomic_flag worker_active = ATOMIC_FLAG_INIT;
 std::atomic<bool> xiaozhi_busy{true};
+// 對話結束後需重新排程 personal pending（暫停期間或 busy 拒排程）。
+std::atomic<bool> personal_pending_resume_pending{false};
 constexpr unsigned kWorkerStackBytes = 8192;
 constexpr unsigned kWorkerPriority = 2;
+
+std::uint64_t last_resume_log_ms = 0;
+
+bool tryResumePersonalPendingAfterXiaozhiIdle()
+{
+    if (xiaozhi_busy.load() || notificationUtcMs() == 0) {
+        return false;
+    }
+    // 已 armed：清掉 resume 旗標，避免 idle 迴圈空轉。
+    if (isPersonalPendingNotificationArmed()) {
+        personal_pending_resume_pending.store(false);
+        return true;
+    }
+    if (!personal_pending_resume_pending.load()) {
+        return false;
+    }
+    const char* reason = nullptr;
+    if (trySchedulePersonalPendingBootAfterSntp(&reason)) {
+        personal_pending_resume_pending.store(false);
+#ifdef ESP_PLATFORM
+        ESP_LOGI("AgentNotify", "personal pending resumed after Xiaozhi idle");
+#endif
+        return true;
+    }
+#ifdef ESP_PLATFORM
+    // 每 5 秒最多打一次，避免 20ms publish 洗版。
+    const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
+    if (last_resume_log_ms == 0 || now_ms - last_resume_log_ms >= 5000) {
+        last_resume_log_ms = now_ms == 0 ? 1 : now_ms;
+        ESP_LOGW("AgentNotify", "personal pending resume deferred (%s)",
+                 reason != nullptr ? reason : "unknown");
+    }
+#endif
+    return false;
+}
 std::mutex pairing_status_mutex;
 NotificationPairingStatus pairing_status;
 std::atomic<bool> pairing_cancelled{false};
@@ -193,6 +231,15 @@ void runPersonalPendingWorker(void* argument)
     PersonalPendingHttpClient client;
     std::uint64_t last_fetch_ms = 0;
     while (isPersonalPendingNotificationArmed()) {
+        // 對話一開始就拆綁定並退出，盡快釋出內部 heap 給 udp_receive。
+        if (xiaozhi_busy.load()) {
+            pausePersonalPendingNotificationProductRuntime();
+            personal_pending_resume_pending.store(true);
+#ifdef ESP_PLATFORM
+            ESP_LOGI("AgentNotify", "personal pending worker exit for Xiaozhi dialogue");
+#endif
+            break;
+        }
         const auto tick_now = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
         const auto tick_utc = notificationUtcMs();
         if (!personalPendingPollOnce(last_fetch_ms, cfg.fetch_interval_ms, cfg.http, client, tick_now, tick_utc,
@@ -211,9 +258,32 @@ void runPersonalPendingWorker(void* argument)
 }
 }  // namespace
 
+void markPersonalPendingResumePending() noexcept
+{
+    personal_pending_resume_pending.store(true);
+}
+
 void publishNotificationXiaozhiBusy(bool busy) noexcept
 {
-    xiaozhi_busy.store(busy);
+    const bool previous = xiaozhi_busy.exchange(busy);
+    if (busy && !previous) {
+        // 進入對話／connecting：立即暫停 pending，讓出內部連續塊。
+        pausePersonalPendingNotificationProductRuntime();
+        personal_pending_resume_pending.store(true);
+#ifdef ESP_PLATFORM
+        ESP_LOGI("AgentNotify", "personal pending paused for Xiaozhi dialogue");
+#endif
+    } else if (!busy && previous) {
+        // busy→idle：一定標記並立刻嘗試排程（修開機 SNTP 時仍 busy 的競態）。
+        personal_pending_resume_pending.store(true);
+#ifdef ESP_PLATFORM
+        ESP_LOGI("AgentNotify", "Xiaozhi idle; scheduling personal pending");
+#endif
+        (void)tryResumePersonalPendingAfterXiaozhiIdle();
+    } else if (!busy) {
+        // 持續 idle：若仍有 resume 旗標則重試（worker 尚在退出／暫時 busy 拒排程）。
+        (void)tryResumePersonalPendingAfterXiaozhiIdle();
+    }
 }
 
 bool requestNotificationProductStream(std::uint64_t coordinator_generation)
@@ -274,6 +344,14 @@ bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest requ
 #endif
         return false;
     }
+    if (xiaozhi_busy.load()) {
+        // 對話中不啟動；標記稍後於 idle 恢復。
+        personal_pending_resume_pending.store(true);
+#ifdef ESP_PLATFORM
+        ESP_LOGW("AgentNotify", "personal pending reject: xiaozhi_busy");
+#endif
+        return false;
+    }
     if (request.session == 0 || request.fetch_interval_ms == 0 || request.policy_expires_utc_ms == 0 ||
         request.http.port == 0 || request.http.coordinator_host.empty() ||
         request.http.coordinator_host.size() > 253 ||
@@ -302,6 +380,10 @@ bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest requ
         worker_active.clear();
         return false;
     }
+    // NotificationController／Ingress 要求 session 嚴格遞增；NVS session 固定，
+    // 每次排程（含 Xiaozhi idle resume）必須換新 runtime session，否則 arm_failed。
+    static std::atomic<std::uint64_t> personal_pending_runtime_session{1};
+    request.session = personal_pending_runtime_session.fetch_add(1, std::memory_order_relaxed);
     auto* heap_request = new (std::nothrow) PersonalPendingWorkerRequest(std::move(request));
     if (!heap_request) {
 #ifdef ESP_PLATFORM
@@ -344,6 +426,7 @@ bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest requ
 #else
 bool requestNotificationProductStream(std::uint64_t) { return false; }
 void publishNotificationXiaozhiBusy(bool) noexcept {}
+void markPersonalPendingResumePending() noexcept {}
 bool requestNotificationProductPairing(NotificationPairingEndpoint, std::uint16_t, std::uint64_t) { return false; }
 NotificationPairingStatus notificationProductPairingStatus() { return {}; }
 void cancelNotificationProductPairing() noexcept {}

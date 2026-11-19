@@ -74,6 +74,12 @@ bool armPersonalPendingNotificationProductRuntime(std::uint64_t session, std::st
 bool isPersonalPendingNotificationArmed();
 
 /**
+ * 對話優先：解除 personal pending 綁定，讓 worker 盡快退出以釋出內部 heap。
+ * 可重入；未 armed 時為 no-op。
+ */
+void pausePersonalPendingNotificationProductRuntime() noexcept;
+
+/**
  * 餵入一次 Pi pending JSON（呼叫端已完成 HTTP GET）。
  * 回傳 enqueue 筆數；未 armed 或契約失敗 → 0。
  */

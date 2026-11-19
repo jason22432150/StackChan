@@ -136,6 +136,13 @@ int main()
     expect(written.find("Authorization: Bearer device-token-value\r\n") != std::string::npos, "bearer");
     expect(ssl_init_calls == 0, "cleartext never opens TLS");
 
+    // Pi BaseHTTP 回 HTTP/1.0；須與 1.1 同等接受。
+    response = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+               std::to_string(std::string_view{kPendingBody}.size()) + "\r\nConnection: close\r\n\r\n" +
+               kPendingBody;
+    const auto ok10 = client.fetch(cleartext);
+    expect(ok10.has_value() && ok10->body == kPendingBody, "HTTP/1.0 200 accepted");
+
     expect_tls = true;
     PersonalPendingHttpClient::Config https = cleartext;
     https.coordinator_ca_pem = "-----BEGIN CERTIFICATE-----\nmock";

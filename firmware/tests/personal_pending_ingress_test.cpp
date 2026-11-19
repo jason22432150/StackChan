@@ -53,6 +53,21 @@ void testPulseAllowsUtcSlightlyAheadOfEstimate()
     expect(ingress.pulse(1003, 0), "ahead within skew accepted");
     expect(!ingress.pulse(1007, 0), "ahead beyond skew rejected");
 }
+
+void testRebindAfterDisconnectNeedsNewerSession()
+{
+    NotificationController controller({2, 20, 1});
+    PersonalPendingIngress ingress(controller, 5);
+    expect(ingress.bind({4, "dev", "v1", 1, 10'000}, 1000, 0), "first bind");
+    expect(ingress.bound(), "bound");
+    expect(!ingress.bind({4, "dev", "v1", 1, 10'000}, 1000, 1), "same session while bound rejected");
+    ingress.disconnect(4);
+    expect(!ingress.bound(), "unbound after disconnect");
+    // Controller beginRecovery 亦要求 session 遞增；pause 後須用更新的 runtime session。
+    expect(!ingress.bind({4, "dev", "v1", 1, 10'000}, 1001, 2), "same session after pause rejected");
+    expect(ingress.bind({5, "dev", "v1", 1, 10'000}, 1001, 2), "newer session after pause");
+    expect(ingress.bound(), "re-bound");
+}
 }  // namespace
 
 int main()
@@ -60,4 +75,5 @@ int main()
     testBindPulseAndEnqueue();
     testExpiryConversion();
     testPulseAllowsUtcSlightlyAheadOfEstimate();
+    testRebindAfterDisconnectNeedsNewerSession();
 }

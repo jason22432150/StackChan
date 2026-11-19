@@ -33,4 +33,7 @@ enum class NotificationStreamRequestResult { InvalidGeneration, Rejected, Schedu
 NotificationStreamRequestResult requestConfiguredNotificationProductStream(std::string_view generation);
 void publishNotificationXiaozhiBusy(bool busy) noexcept;
 
+/** 標記「回到 idle 後必須再排程 personal pending」（SNTP 失敗／開機 busy 拒排程共用）。 */
+void markPersonalPendingResumePending() noexcept;
+
 }  // namespace stackchan::notifications

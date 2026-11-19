@@ -253,6 +253,19 @@ bool isPersonalPendingNotificationArmed()
     return rt.ready && rt.personal_armed && rt.personal.bound();
 }
 
+void pausePersonalPendingNotificationProductRuntime() noexcept
+{
+    auto& rt = runtime();
+    if (!rt.ready || !rt.personal_armed) {
+        return;
+    }
+    if (rt.personal.bound()) {
+        rt.personal.disconnect(rt.personal.session());
+    }
+    rt.personal_armed = false;
+    rt.pending_feed_json.clear();
+}
+
 std::size_t feedPersonalPendingNotificationJson(std::string_view pending_json, std::uint64_t /*now_ms*/,
                                                 std::uint64_t /*utc_ms*/)
 {

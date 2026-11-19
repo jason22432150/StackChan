@@ -65,9 +65,10 @@ std::optional<std::size_t> parseResponseHeader(std::string_view headers, Coordin
 {
     const auto status_end = headers.find("\r\n");
     const auto status_line = headers.substr(0, status_end);
-    if (status_end == std::string_view::npos || !status_line.starts_with("HTTP/1.1 ") ||
-        status_line.size() < 13 || status_line[12] != ' ' ||
-        status_line.find_first_of("\r\n") != std::string_view::npos) {
+    // Pi BaseHTTP／多數簡單 LAN server 回 HTTP/1.0；與 1.1 同長度 status 前綴。
+    const bool http_1x = status_line.starts_with("HTTP/1.1 ") || status_line.starts_with("HTTP/1.0 ");
+    if (status_end == std::string_view::npos || !http_1x || status_line.size() < 13 ||
+        status_line[12] != ' ' || status_line.find_first_of("\r\n") != std::string_view::npos) {
         return std::nullopt;
     }
     const auto* status_start = status_line.data() + 9;

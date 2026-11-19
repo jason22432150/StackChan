@@ -2,6 +2,10 @@
 
 #include <string_view>
 
+#ifdef ESP_PLATFORM
+#include <esp_log.h>
+#endif
+
 namespace stackchan::notifications {
 // 避免拉進 device_stream_tls／esp_transport；由 runtime 提供實作。
 bool isPersonalPendingNotificationArmed();
@@ -29,9 +33,21 @@ bool personalPendingPollOnce(std::uint64_t& last_fetch_ms, std::uint64_t interva
     if (!isPersonalPendingNotificationArmed()) {
         return false;
     }
-    if (personalPendingFetchDue(last_fetch_ms, now_ms, interval_ms)) {
+    // Xiaozhi 對話中不拉 pending，避免 HTTP／lwIP 與 UDP receive task 搶內部 SRAM。
+    if (!xiaozhi_busy && personalPendingFetchDue(last_fetch_ms, now_ms, interval_ms)) {
         if (auto result = client.fetch(http)) {
-            (void)feedPersonalPendingNotificationJson(result->body, now_ms, utc_ms);
+            const auto fed = feedPersonalPendingNotificationJson(result->body, now_ms, utc_ms);
+#ifdef ESP_PLATFORM
+            ESP_LOGI("AgentNotify", "personal pending fetch ok bytes=%u fed=%u",
+                     static_cast<unsigned>(result->body.size()), static_cast<unsigned>(fed));
+#else
+            (void)fed;
+#endif
+        } else {
+#ifdef ESP_PLATFORM
+            ESP_LOGW("AgentNotify", "personal pending fetch failed host=%s port=%u",
+                     http.coordinator_host.c_str(), static_cast<unsigned>(http.port));
+#endif
         }
         // 成功或失敗都推進間隔，避免 20ms tick 打爆網路。
         last_fetch_ms = now_ms == 0 ? 1 : now_ms;

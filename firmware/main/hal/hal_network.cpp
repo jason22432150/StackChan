@@ -5,6 +5,7 @@
  */
 #include "hal.h"
 #include <stackchan/stackchan.h>
+#include <stackchan/notifications/notification_product_task.h>
 #include <stackchan/notifications/notification_utc_clock.h>
 #include <stackchan/notifications/personal_pending_boot.h>
 #include <mooncake.h>
@@ -39,6 +40,8 @@ void runPersonalPendingBootSchedule()
         mclog::tagInfo(_tag, "personal pending boot schedule after SNTP: skipped ({})",
                        reason != nullptr ? reason : "unknown");
         personal_pending_boot_scheduled.store(false);
+        // 開機時常因 Xiaozhi 尚未 idle 被拒；交給 idle 邊緣重排程。
+        stackchan::notifications::markPersonalPendingResumePending();
     }
 }
 
@@ -64,6 +67,8 @@ static void time_sync_notification_cb(struct timeval*)
     mclog::tagInfo(_tag, "SNTP time synchronized");
     GetHAL().syncSystemTimeToRtc();
 #if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+    // 無論是否已 defer 過，都標記 idle 後可再試（避免二次 SNTP sync 靜默 return 後永遠不排程）。
+    stackchan::notifications::markPersonalPendingResumePending();
     // 時鐘就緒後再排程；延後數秒避開 SNTP callback 當下內部 heap 低谷。
     bool expected = false;
     if (!personal_pending_boot_scheduled.compare_exchange_strong(expected, true)) {

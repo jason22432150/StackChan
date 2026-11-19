@@ -194,6 +194,18 @@ bool armPersonalPendingNotificationProductRuntime(std::uint64_t, std::string_vie
     return personal_arm_ok;
 }
 bool isPersonalPendingNotificationArmed() { return personal_armed; }
+void pausePersonalPendingNotificationProductRuntime() noexcept
+{
+    personal_armed = false;
+}
+bool trySchedulePersonalPendingBootAfterSntp(const char** reason)
+{
+    if (reason != nullptr) {
+        *reason = "test_stub";
+    }
+    // host stub：不自動重排程，避免測試自旋
+    return false;
+}
 std::size_t feedPersonalPendingNotificationJson(std::string_view body, std::uint64_t, std::uint64_t)
 {
     ++personal_feeds;
@@ -342,6 +354,8 @@ int main()
         9'000'000'000'000ULL,
         5000,
     };
+    // 對話中拒排程；idle 才允許 personal pending worker。
+    publishNotificationXiaozhiBusy(false);
     personal_arm_ok = false;
     polled = 0;
     personal_fetches = 0;
@@ -357,11 +371,15 @@ int main()
     polled = 0;
     personal_fetches = 0;
     personal_feeds = 0;
-    publishNotificationXiaozhiBusy(true);
+    publishNotificationXiaozhiBusy(false);
     expect(requestPersonalPendingNotificationProduct(personal), "personal armed path");
     runScheduledTask();
     expect(personal_armed_count >= 2 && personal_fetches >= 1 && personal_feeds >= 1 && polled == 2,
            "personal worker fetch→feed→tick until disarmed");
+
+    // busy 時拒啟動，並標記稍後 resume
+    publishNotificationXiaozhiBusy(true);
+    expect(!requestPersonalPendingNotificationProduct(personal), "reject while Xiaozhi busy");
 #else
     expect(!requestNotificationProductStream(7) && created == 0, "disabled feature does not create tasks");
     expect(requestConfiguredNotificationProductStream("7") == NotificationStreamRequestResult::Rejected && created == 0,

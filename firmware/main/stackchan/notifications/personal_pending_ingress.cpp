@@ -23,7 +23,8 @@ PersonalPendingIngress::PersonalPendingIngress(NotificationController& controlle
 
 bool PersonalPendingIngress::bind(Binding binding, Tick utc_ms, Tick now)
 {
-    if (binding.session <= _session) {
+    // session 必須嚴格遞增；disconnect 會清 _session，故 pause 後可用同一 NVS session 再 bind。
+    if (binding.session == 0 || binding.session <= _session) {
         return false;
     }
     disconnect(_session);
@@ -50,6 +51,8 @@ void PersonalPendingIngress::disconnect(SessionId session)
     if (session == _session) {
         _bound = false;
         _controller.suspend(session);
+        // 清 session 讓同一 NVS session 可在 Xiaozhi idle 後重新 beginRecovery。
+        _session = 0;
     }
 }
 

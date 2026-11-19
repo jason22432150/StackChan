@@ -355,7 +355,8 @@ def make_handler(app: PiCoordinatorApp) -> type[BaseHTTPRequestHandler]:
                 data = str(payload).encode("utf-8")
                 ctype = content_type
             else:
-                data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+                # 緊湊 JSON：韌體 CompactJsonMatch／ArduinoJson serialize 不含空白。
+                data = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
                 ctype = "application/json; charset=utf-8"
             self.send_response(status)
             self.send_header("Content-Type", ctype)

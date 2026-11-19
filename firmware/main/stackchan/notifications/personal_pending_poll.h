@@ -14,7 +14,8 @@ bool personalPendingFetchDue(std::uint64_t last_fetch_ms, std::uint64_t now_ms,
                              std::uint64_t interval_ms);
 
 /**
- * 一輪個人版 worker：due 時 fetch→feed（失敗只跳過，仍更新 last_fetch），再 tick。
+ * 一輪個人版 worker：due 且非 Xiaozhi busy 時 fetch→feed（失敗只跳過，仍更新 last_fetch），再 tick。
+ * busy 時跳過 fetch（不推進 last_fetch），仍 tick 以利搶占 UI。
  * 回傳 tick 後是否仍 armed。
  */
 bool personalPendingPollOnce(std::uint64_t& last_fetch_ms, std::uint64_t interval_ms,

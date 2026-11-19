@@ -64,11 +64,15 @@ int main()
     expect(personalPendingPollOnce(last, 5000, http, client, 120, 1020, false), "within interval");
     expect(fetches == 1 && feeds == 1 && ticks == 2, "no refetch before interval");
 
+    // Xiaozhi busy：跳過 fetch，不推進 last_fetch，仍 tick
+    expect(personalPendingPollOnce(last, 5000, http, client, 5200, 5200, true), "busy still ticks");
+    expect(fetches == 1 && feeds == 1 && ticks == 3 && last == 100, "busy skips fetch");
+
     fetch_ok = false;
-    expect(personalPendingPollOnce(last, 5000, http, client, 5200, 5200, true), "failed fetch still ticks");
-    expect(fetches == 2 && feeds == 1 && ticks == 3 && last == 5200, "failed fetch advances last");
+    expect(personalPendingPollOnce(last, 5000, http, client, 5200, 5200, false), "failed fetch still ticks");
+    expect(fetches == 2 && feeds == 1 && ticks == 4 && last == 5200, "failed fetch advances last");
 
     armed = false;
     expect(!personalPendingPollOnce(last, 5000, http, client, 5300, 5300, false), "disarmed stops");
-    expect(fetches == 2 && ticks == 3, "disarmed skips work");
+    expect(fetches == 2 && ticks == 4, "disarmed skips work");
 }
