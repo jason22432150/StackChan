@@ -7,6 +7,7 @@
 #include <stackchan/notifications/notification_product_task.h>
 #include <stackchan/notifications/notification_utc_clock.h>
 #include <stackchan/notifications/personal_pending_http_client.h>
+#include <stackchan/notifications/personal_pending_json.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -230,6 +231,16 @@ std::optional<PersonalPendingHttpClient::Result> PersonalPendingHttpClient::fetc
     ++personal_fetches;
     expect(config.device_id == "cores3_primary", "personal fetch device");
     return Result{std::string(R"({"items":[],"count":0})")};
+}
+bool PersonalPendingHttpClient::ack(const Config&, std::string_view)
+{
+    return true;
+}
+std::size_t collectPersonalPendingDeliveryIds(std::string_view, std::size_t, std::vector<std::string>& out,
+                                              std::size_t)
+{
+    out.clear();
+    return 0;
 }
 }  // namespace stackchan::notifications
 

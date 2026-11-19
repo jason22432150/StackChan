@@ -11,11 +11,13 @@
 namespace stackchan::notifications {
 
 /**
- * CoreS3 → Pi：`GET /v1/devices/{id}/notifications/pending`。
+ * CoreS3 → Pi：pending pull／ACK。
  *
+ * - GET  `/v1/devices/{id}/notifications/pending`
+ * - POST `/v1/devices/{id}/notifications/pending/{delivery_id}/ack`
  * - `coordinator_ca_pem` 空：cleartext HTTP（個人 LAN）
  * - 非空：HTTPS + 明確 CA（須以 -----BEGIN CERTIFICATE----- 開頭）
- * 不 present、不 enqueue；成功僅回傳 200 body 供 feedPersonalPending…。
+ * pull 成功僅回傳 200 body 供 feed；ACK 成功回 true（含冪等 duplicate）。
  */
 class PersonalPendingHttpClient {
 public:
@@ -35,6 +37,9 @@ public:
     };
 
     std::optional<Result> fetch(const Config& config);
+
+    /** 裝置確認已接收一筆 pending；200＋acked 視為成功（含 duplicate）。 */
+    bool ack(const Config& config, std::string_view delivery_id);
 };
 
 }  // namespace stackchan::notifications

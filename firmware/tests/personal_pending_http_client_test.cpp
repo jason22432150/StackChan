@@ -143,6 +143,17 @@ int main()
     const auto ok10 = client.fetch(cleartext);
     expect(ok10.has_value() && ok10->body == kPendingBody, "HTTP/1.0 200 accepted");
 
+    // ACK：200 + acked true（含 duplicate）
+    constexpr char kAckBody[] = R"({"delivery_id":"dlv_1","acked":true,"duplicate":false})";
+    response = httpOk(kAckBody);
+    expect(client.ack(cleartext, "dlv_1"), "ack 200");
+    expect(written.find("POST /v1/devices/cores3_primary/notifications/pending/dlv_1/ack HTTP/1.1\r\n") == 0,
+           "ack path");
+    expect(written.find("Content-Length: 0\r\n") != std::string::npos, "ack empty body");
+    response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+    expect(!client.ack(cleartext, "dlv_missing"), "ack 404 fails");
+    expect(!client.ack(cleartext, "bad\rid"), "ack injection rejected");
+
     expect_tls = true;
     PersonalPendingHttpClient::Config https = cleartext;
     https.coordinator_ca_pem = "-----BEGIN CERTIFICATE-----\nmock";

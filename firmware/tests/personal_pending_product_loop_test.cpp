@@ -24,6 +24,7 @@ using stackchan::notifications::PersonalPendingIngress;
 using stackchan::notifications::PresentationReceiptTracker;
 using stackchan::notifications::ResourceArbiter;
 using stackchan::notifications::applyPersonalPendingJson;
+using stackchan::notifications::collectPersonalPendingDeliveryIds;
 using Outcome = NotificationProductLoop::Outcome;
 using State = NotificationController::State;
 
@@ -94,10 +95,19 @@ void testPollPersonalPendingSequence()
     expect(fx.loop.tick(1, 1001) == Outcome::Presented, "present after personal poll sequence");
     expect(!fx.inner.ops.empty() && fx.inner.ops.back() == "show:Agent update: dlv_evt_1", "ui show");
 }
+
+void testCollectDeliveryIdsForAck()
+{
+    std::vector<std::string> ids;
+    expect(collectPersonalPendingDeliveryIds(kPendingBody, 2048, ids, 8) == 1, "collect one");
+    expect(ids.size() == 1 && ids[0] == "dlv_evt_1", "delivery_id");
+    expect(collectPersonalPendingDeliveryIds("{}", 2048, ids, 8) == 0, "bad root");
+}
 }  // namespace
 
 int main()
 {
     testPendingJsonFeedsProductLoop();
     testPollPersonalPendingSequence();
+    testCollectDeliveryIdsForAck();
 }

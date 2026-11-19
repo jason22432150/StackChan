@@ -3,7 +3,9 @@
 #include "personal_pending_ingress.h"
 
 #include <cstddef>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace stackchan::notifications {
 
@@ -16,5 +18,12 @@ namespace stackchan::notifications {
  */
 std::size_t applyPersonalPendingJson(PersonalPendingIngress& ingress, std::string_view json,
                                      std::size_t max_bytes, PersonalPendingIngress::Tick now);
+
+/**
+ * 自已通過根契約的 pending JSON 收集 delivery_id（供 ACK）。
+ * 根契約失敗回傳 0；最多寫入 max_ids 筆。
+ */
+std::size_t collectPersonalPendingDeliveryIds(std::string_view json, std::size_t max_bytes,
+                                              std::vector<std::string>& out, std::size_t max_ids = 8);
 
 }  // namespace stackchan::notifications

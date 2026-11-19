@@ -112,6 +112,27 @@ def test_device_pull_client_rejects_wrong_token(pi_http: dict[str, Any]) -> None
     assert "unauthorized" in str(exc.value)
 
 
+def test_device_pull_client_ack_drains_pending(pi_http: dict[str, Any]) -> None:
+    _post_batch(pi_http["base"], pi_http["bridge_token"], _sample_event())
+    client = DevicePullClient(
+        base_url=pi_http["base"],
+        device_id=pi_http["device_id"],
+        device_token=pi_http["device_token"],
+        timeout_seconds=3.0,
+    )
+    pending = client.pull_pending(limit=10)
+    assert len(pending.items) == 1
+    delivery_id = pending.items[0]["delivery_id"]
+    first = client.ack_pending(delivery_id)
+    assert first == {"delivery_id": delivery_id, "acked": True, "duplicate": False}
+    assert client.pull_pending(limit=10).items == []
+    dup = client.ack_pending(delivery_id)
+    assert dup["duplicate"] is True
+    with pytest.raises(DevicePullError) as exc:
+        client.ack_pending("dlv_missing")
+    assert "not_found" in str(exc.value)
+
+
 def test_device_cli_pull_pending(pi_http: dict[str, Any], capsys: pytest.CaptureFixture[str]) -> None:
     _post_batch(pi_http["base"], pi_http["bridge_token"], _sample_event())
     rc = device_main(

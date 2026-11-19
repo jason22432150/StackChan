@@ -103,4 +103,44 @@ std::size_t applyPersonalPendingJson(PersonalPendingIngress& ingress, std::strin
     return accepted;
 }
 
+std::size_t collectPersonalPendingDeliveryIds(std::string_view json, std::size_t max_bytes,
+                                              std::vector<std::string>& out, std::size_t max_ids)
+{
+    out.clear();
+    if (json.empty() || json.size() > max_bytes || max_ids == 0 || !validUtf8(json)) {
+        return 0;
+    }
+    JsonDocument document;
+    if (deserializeJson(document, json.data(), json.size(), DeserializationOption::NestingLimit(4))) {
+        return 0;
+    }
+    CompactJsonMatch match(json);
+    serializeJson(document, match);
+    if (!match.complete()) {
+        return 0;
+    }
+    const auto root = document.as<JsonObjectConst>();
+    if (root.size() != 2 || !root["items"].is<JsonArrayConst>() || !root["count"].is<unsigned>()) {
+        return 0;
+    }
+    const auto items = root["items"].as<JsonArrayConst>();
+    if (root["count"].as<unsigned>() != items.size() || items.size() > 100) {
+        return 0;
+    }
+    for (JsonVariantConst entry : items) {
+        if (out.size() >= max_ids) {
+            break;
+        }
+        if (!entry.is<JsonObjectConst>()) {
+            continue;
+        }
+        const auto delivery = stringValue(entry.as<JsonObjectConst>()["delivery_id"]);
+        if (!identifier(delivery)) {
+            continue;
+        }
+        out.emplace_back(delivery);
+    }
+    return out.size();
+}
+
 }  // namespace stackchan::notifications

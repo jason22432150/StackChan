@@ -48,4 +48,34 @@ std::optional<PersonalPendingHttpClient::Result> PersonalPendingHttpClient::fetc
     return Result{std::move(response->body)};
 }
 
+bool PersonalPendingHttpClient::ack(const Config& config, std::string_view delivery_id)
+{
+    if (!printableField(config.device_id, NotificationController::max_id_bytes) ||
+        !printableField(config.token, 512) ||
+        !printableField(delivery_id, NotificationController::max_id_bytes) ||
+        config.max_response_bytes == 0 || config.network_timeout_ms <= 0) {
+        return false;
+    }
+
+    const auto path = "/v1/devices/" + config.device_id + "/notifications/pending/" +
+                      std::string(delivery_id) + "/ack";
+    const auto request = "POST " + path + " HTTP/1.1\r\nHost: " + config.coordinator_host +
+                         "\r\nAuthorization: Bearer " + config.token +
+                         "\r\nAccept: application/json\r\nContent-Length: 0\r\n"
+                         "User-Agent: stackchan-cores3-pending/0.1\r\n"
+                         "Connection: close\r\n\r\n";
+
+    std::optional<CoordinatorHttpsResponse> response;
+    if (config.coordinator_ca_pem.empty()) {
+        response = requestCoordinatorHttp(config.coordinator_host, config.port, request,
+                                          config.max_response_bytes, config.network_timeout_ms);
+    } else {
+        response = requestCoordinatorHttps(config.coordinator_host, config.port, config.coordinator_ca_pem,
+                                           request, config.max_response_bytes, config.network_timeout_ms);
+    }
+    // 200 且 body 含 "acked":true（含 duplicate）即視為佇列可自 pull 移除。
+    return response.has_value() && response->status == 200 &&
+           response->body.find("\"acked\":true") != std::string::npos;
+}
+
 }  // namespace stackchan::notifications

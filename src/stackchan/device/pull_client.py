@@ -104,6 +104,67 @@ class DevicePullClient:
         safe_items = [_summarize_intent(item) for item in items if isinstance(item, dict)]
         return PendingPullResult(device_id=self.device_id, items=safe_items, ok=True, error=None)
 
+    def ack_pending(self, delivery_id: str) -> dict[str, Any]:
+        """
+        ACK 一筆 pending（POST …/pending/{delivery_id}/ack）。
+
+        成功回傳 ``{"delivery_id","acked","duplicate"}``；失敗 raise DevicePullError。
+        """
+        delivery = str(delivery_id).strip()
+        if not delivery:
+            raise ValueError("delivery_id 不可為空")
+        path = (
+            f"v1/devices/{quote(self.device_id, safe='')}/notifications/pending/"
+            f"{quote(delivery, safe='')}/ack"
+        )
+        url = urljoin(self.base_url + "/", path)
+        request = Request(
+            url,
+            method="POST",
+            data=b"",
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self.device_token}",
+                "Content-Length": "0",
+                "User-Agent": "stackchan-device-pull/0.1",
+            },
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds, context=self._ssl_context()) as response:
+                raw = response.read()
+                status = getattr(response, "status", 200)
+        except HTTPError as exc:
+            detail = _read_error_body(exc)
+            if exc.code == 401:
+                raise DevicePullError(f"unauthorized:{detail}") from exc
+            if exc.code == 403:
+                raise DevicePullError(f"forbidden:{detail}") from exc
+            if exc.code == 404:
+                raise DevicePullError(f"not_found:{detail}") from exc
+            raise DevicePullError(f"http_{exc.code}:{detail}") from exc
+        except URLError as exc:
+            raise DevicePullError(f"network_error:{exc.reason}") from exc
+        except TimeoutError as exc:
+            raise DevicePullError("timeout") from exc
+
+        if status >= 400:
+            raise DevicePullError(f"http_{status}")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DevicePullError("invalid_json") from exc
+        if (
+            not isinstance(payload, dict)
+            or payload.get("acked") is not True
+            or str(payload.get("delivery_id", "")) != delivery
+        ):
+            raise DevicePullError("invalid_ack_payload")
+        return {
+            "delivery_id": delivery,
+            "acked": True,
+            "duplicate": bool(payload.get("duplicate")),
+        }
+
     def _ssl_context(self) -> ssl.SSLContext | None:
         if self.base_url.startswith("http://"):
             return None
