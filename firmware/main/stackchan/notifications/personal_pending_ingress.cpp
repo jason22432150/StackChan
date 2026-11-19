@@ -69,9 +69,15 @@ bool PersonalPendingIngress::pulse(Tick observed_utc_ms, Tick now)
         disconnect(_session);
         return false;
     }
+    // 以 bind 時 (utc, mono) 推估當前 UTC；允許前後對稱 _max_skew。
+    // 舊邏輯拒「超前 1ms」會在 SNTP／system_clock 與 esp_timer 不同步時誤殺 worker。
     const auto estimated_utc = _bound_utc + (now - _bound_at);
-    if (observed_utc_ms < _bound_utc || observed_utc_ms > estimated_utc ||
-        estimated_utc - observed_utc_ms > _max_skew || observed_utc_ms <= _last_pulse_utc) {
+    if (observed_utc_ms < _bound_utc || observed_utc_ms <= _last_pulse_utc) {
+        return false;
+    }
+    const auto delta = observed_utc_ms > estimated_utc ? observed_utc_ms - estimated_utc
+                                                       : estimated_utc - observed_utc_ms;
+    if (delta > _max_skew) {
         return false;
     }
     if (!_controller.heartbeat(_session, now)) {

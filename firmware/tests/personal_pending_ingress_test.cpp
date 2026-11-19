@@ -43,10 +43,21 @@ void testExpiryConversion()
     expect(ingress.receiveItem("dev", "v1", 1, "ok", 1010, 2), "deadline converted");
     expect(!controller.takeNext(2, 12), "expired at mono boundary");
 }
+
+void testPulseAllowsUtcSlightlyAheadOfEstimate()
+{
+    NotificationController controller({2, 20, 1});
+    PersonalPendingIngress ingress(controller, 5);
+    // bind＠utc=1000, mono=0；同 mono 下 wall clock 超前 3ms（仍 < max_skew=5）
+    expect(ingress.bind({3, "dev", "v1", 1, 10'000}, 1000, 0), "bind");
+    expect(ingress.pulse(1003, 0), "ahead within skew accepted");
+    expect(!ingress.pulse(1007, 0), "ahead beyond skew rejected");
+}
 }  // namespace
 
 int main()
 {
     testBindPulseAndEnqueue();
     testExpiryConversion();
+    testPulseAllowsUtcSlightlyAheadOfEstimate();
 }
