@@ -13,13 +13,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     用法：
       stackchan bridge ...
       stackchan coordinator ...
+      stackchan device ...
       stackchan version
     """
     args = list(argv) if argv is not None else sys.argv[1:]
     if not args or args[0] in {"-h", "--help", "help"}:
-        print("usage: stackchan <bridge|coordinator|version> ...")
+        print("usage: stackchan <bridge|coordinator|device|version> ...")
         print("  bridge       Windows／macOS／Linux Bridge CLI")
         print("  coordinator  Pi Coordinator（serve-pi）與 CoreS3 TLS 驗收服務")
+        print("  device       個人版裝置 HTTP pull（host 驗收；不燒錄）")
         print("  version      顯示契約 schema_version")
         raise SystemExit(0 if args else 2)
 
@@ -39,6 +41,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         from stackchan.coordinator.cli import main as coordinator_main
 
         raise SystemExit(coordinator_main(rest))
+
+    if command == "device":
+        from stackchan.device.cli import main as device_main
+
+        raise SystemExit(device_main(rest))
 
     print(f"error: 未知命令 {command!r}", file=sys.stderr)
     raise SystemExit(2)
