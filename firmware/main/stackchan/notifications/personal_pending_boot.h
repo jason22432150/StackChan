@@ -61,8 +61,11 @@ std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigFromNvs();
  */
 bool savePersonalPendingBootConfigToNvs(const PersonalPendingBootConfig& boot);
 
-/** SNTP 後：NVS 有完整設定才排程。 */
-bool trySchedulePersonalPendingBootAfterSntp();
+/**
+ * SNTP 後：NVS 有完整設定才排程。
+ * @param skip_reason 失敗時可選填寫靜態原因字串（clock_unsync／nvs_missing／bad_boot／task_or_busy）。
+ */
+bool trySchedulePersonalPendingBootAfterSntp(const char** skip_reason = nullptr);
 
 /** 預設 = loadPersonalPendingBootConfigFromNvs（可測性覆寫點）。 */
 std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigForBoot();

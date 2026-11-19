@@ -6,6 +6,7 @@
 #include "hal.h"
 #include <stackchan/stackchan.h>
 #include <stackchan/notifications/notification_utc_clock.h>
+#include <stackchan/notifications/personal_pending_boot.h>
 #include <mooncake.h>
 #include <mooncake_log.h>
 #include <wifi_manager.h>
@@ -16,12 +17,41 @@
 #include <ctime>
 #include <sys/time.h>
 #include <esp_sntp.h>
+#include <esp_timer.h>
 #include <atomic>
+#include <sdkconfig.h>
+
+static std::string _tag = "Network";
 
 namespace {
 stackchan::notifications::NotificationUtcClock notification_clock;
+std::atomic<bool> personal_pending_boot_scheduled{false};
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+esp_timer_handle_t personal_pending_defer_timer = nullptr;
+
+void runPersonalPendingBootSchedule()
+{
+    const char* reason = nullptr;
+    const bool ok = stackchan::notifications::trySchedulePersonalPendingBootAfterSntp(&reason);
+    if (ok) {
+        mclog::tagInfo(_tag, "personal pending boot schedule after SNTP: ok");
+    } else {
+        mclog::tagInfo(_tag, "personal pending boot schedule after SNTP: skipped ({})",
+                       reason != nullptr ? reason : "unknown");
+        personal_pending_boot_scheduled.store(false);
+    }
 }
-static std::string _tag = "Network";
+
+void personalPendingBootDeferCb(void*)
+{
+    runPersonalPendingBootSchedule();
+    if (personal_pending_defer_timer != nullptr) {
+        esp_timer_delete(personal_pending_defer_timer);
+        personal_pending_defer_timer = nullptr;
+    }
+}
+#endif
+}
 
 std::uint64_t stackchan::notifications::notificationUtcMs() noexcept
 {
@@ -33,6 +63,32 @@ static void time_sync_notification_cb(struct timeval*)
     notification_clock.markSynchronized();
     mclog::tagInfo(_tag, "SNTP time synchronized");
     GetHAL().syncSystemTimeToRtc();
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+    // 時鐘就緒後再排程；延後數秒避開 SNTP callback 當下內部 heap 低谷。
+    bool expected = false;
+    if (!personal_pending_boot_scheduled.compare_exchange_strong(expected, true)) {
+        return;
+    }
+    if (personal_pending_defer_timer == nullptr) {
+        const esp_timer_create_args_t args = {
+            .callback = &personalPendingBootDeferCb,
+            .arg = nullptr,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "pend_boot",
+            .skip_unhandled_events = true,
+        };
+        if (esp_timer_create(&args, &personal_pending_defer_timer) == ESP_OK &&
+            esp_timer_start_once(personal_pending_defer_timer, 3'000'000) == ESP_OK) {
+            mclog::tagInfo(_tag, "personal pending boot schedule deferred 3s");
+            return;
+        }
+        if (personal_pending_defer_timer != nullptr) {
+            esp_timer_delete(personal_pending_defer_timer);
+            personal_pending_defer_timer = nullptr;
+        }
+    }
+    runPersonalPendingBootSchedule();
+#endif
 }
 
 void Hal::startSntp()

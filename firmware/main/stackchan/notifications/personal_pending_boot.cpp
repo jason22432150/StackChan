@@ -110,6 +110,7 @@ std::optional<PersonalPendingWorkerRequest> buildPersonalPendingWorkerRequest(
 
 bool schedulePersonalPendingBoot(const PersonalPendingBootConfig& boot, std::uint64_t utc_ms)
 {
+    // 與 trySchedulePersonalPendingBootAfterSntp 共用組裝／建 task 路徑。
     auto request = buildPersonalPendingWorkerRequest(boot, utc_ms);
     if (!request) {
         return false;
@@ -207,16 +208,32 @@ std::optional<PersonalPendingBootConfig> loadPersonalPendingBootConfigForBoot()
     return loadPersonalPendingBootConfigFromNvs();
 }
 
-bool trySchedulePersonalPendingBootAfterSntp()
+bool trySchedulePersonalPendingBootAfterSntp(const char** skip_reason)
 {
-    if (notificationUtcMs() == 0) {
+    auto fail = [&](const char* reason) {
+        if (skip_reason != nullptr) {
+            *skip_reason = reason;
+        }
         return false;
+    };
+    if (notificationUtcMs() == 0) {
+        return fail("clock_unsync");
     }
     auto boot = loadPersonalPendingBootConfigForBoot();
     if (!boot) {
-        return false;
+        return fail("nvs_missing");
     }
-    return schedulePersonalPendingBoot(*boot, notificationUtcMs());
+    auto request = buildPersonalPendingWorkerRequest(*boot, notificationUtcMs());
+    if (!request) {
+        return fail("bad_boot");
+    }
+    if (!requestPersonalPendingNotificationProduct(std::move(*request))) {
+        return fail("task_or_busy");
+    }
+    if (skip_reason != nullptr) {
+        *skip_reason = nullptr;
+    }
+    return true;
 }
 
 }  // namespace stackchan::notifications

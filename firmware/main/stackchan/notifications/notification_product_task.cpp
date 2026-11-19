@@ -18,9 +18,13 @@
 #include <algorithm>
 #include <sdkconfig.h>
 
-#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS && CONFIG_STACKCHAN_RUNTIME_BASELINE
+#if CONFIG_STACKCHAN_AGENT_NOTIFICATIONS
+#if CONFIG_STACKCHAN_RUNTIME_BASELINE || (defined(CONFIG_SPIRAM) && CONFIG_SPIRAM)
 #include <esp_heap_caps.h>
+#endif
+#if defined(ESP_PLATFORM) || CONFIG_STACKCHAN_RUNTIME_BASELINE
 #include <esp_log.h>
+#endif
 #endif
 
 namespace stackchan::notifications {
@@ -264,30 +268,77 @@ void cancelNotificationProductPairing() noexcept
 
 bool requestPersonalPendingNotificationProduct(PersonalPendingWorkerRequest request)
 {
-    if (notificationUtcMs() == 0 || request.session == 0 || request.fetch_interval_ms == 0 ||
-        request.policy_expires_utc_ms == 0 || request.http.port == 0 ||
-        request.http.coordinator_host.empty() || request.http.coordinator_host.size() > 253 ||
+    if (notificationUtcMs() == 0) {
+#ifdef ESP_PLATFORM
+        ESP_LOGW("AgentNotify", "personal pending reject: clock_unsync");
+#endif
+        return false;
+    }
+    if (request.session == 0 || request.fetch_interval_ms == 0 || request.policy_expires_utc_ms == 0 ||
+        request.http.port == 0 || request.http.coordinator_host.empty() ||
+        request.http.coordinator_host.size() > 253 ||
         !printableField(request.http.device_id, NotificationController::max_id_bytes) ||
         !printableField(request.http.token, 512) ||
         !printableField(request.policy_version, NotificationController::max_id_bytes) ||
-        request.http.limit < 1 || request.http.limit > 100 || worker_active.test_and_set()) {
+        request.http.limit < 1 || request.http.limit > 100) {
+#ifdef ESP_PLATFORM
+        ESP_LOGW("AgentNotify", "personal pending reject: bad_request");
+#endif
+        return false;
+    }
+    if (worker_active.test_and_set()) {
+#ifdef ESP_PLATFORM
+        ESP_LOGW("AgentNotify", "personal pending reject: worker_busy");
+#endif
         return false;
     }
     // HTTPS 路徑必須帶 CA；cleartext 允許空 ca_pem。
     if (!request.http.coordinator_ca_pem.empty() &&
         (!request.http.coordinator_ca_pem.starts_with("-----BEGIN CERTIFICATE-----") ||
          request.http.coordinator_ca_pem.size() > 3999)) {
+#ifdef ESP_PLATFORM
+        ESP_LOGW("AgentNotify", "personal pending reject: bad_ca");
+#endif
         worker_active.clear();
         return false;
     }
     auto* heap_request = new (std::nothrow) PersonalPendingWorkerRequest(std::move(request));
-    if (!heap_request ||
-        xTaskCreate(runPersonalPendingWorker, "agent_pending", kWorkerStackBytes, heap_request, kWorkerPriority,
-                    nullptr) != pdPASS) {
+    if (!heap_request) {
+#ifdef ESP_PLATFORM
+        ESP_LOGW("AgentNotify", "personal pending reject: oom_request");
+#endif
+        worker_active.clear();
+        return false;
+    }
+    BaseType_t created = static_cast<BaseType_t>(0);
+#if defined(ESP_PLATFORM) && defined(CONFIG_SPIRAM) && CONFIG_SPIRAM
+    // 內部 SRAM 緊張時改把 task stack 放 PSRAM（與 IMU 等既有路徑一致）。
+    created = xTaskCreatePinnedToCoreWithCaps(runPersonalPendingWorker, "agent_pending", kWorkerStackBytes,
+                                              heap_request, kWorkerPriority, nullptr, tskNO_AFFINITY,
+                                              MALLOC_CAP_SPIRAM);
+#else
+    created = xTaskCreate(runPersonalPendingWorker, "agent_pending", kWorkerStackBytes, heap_request,
+                          kWorkerPriority, nullptr);
+#endif
+    if (created != pdPASS) {
+#ifdef ESP_PLATFORM
+#if defined(CONFIG_SPIRAM) && CONFIG_SPIRAM
+        ESP_LOGW("AgentNotify",
+                 "personal pending reject: task_create_failed internal_free=%u largest=%u spiram_free=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+#else
+        ESP_LOGW("AgentNotify", "personal pending reject: task_create_failed");
+#endif
+#endif
         delete heap_request;
         worker_active.clear();
         return false;
     }
+#ifdef ESP_PLATFORM
+    ESP_LOGI("AgentNotify", "personal pending worker scheduled");
+#endif
     return true;
 }
 #else
