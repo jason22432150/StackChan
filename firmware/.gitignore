@@ -36,6 +36,7 @@
 
 # Build files
 build/
+build-personal-flash/
 build-host-tests/
 cmake-build-*/
 /components/
