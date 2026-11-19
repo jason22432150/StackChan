@@ -21,7 +21,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print("usage: stackchan <bridge|coordinator|device|version> ...")
         print("  bridge       Windows／macOS／Linux Bridge CLI")
         print("  coordinator  Pi Coordinator（serve-pi）與 CoreS3 TLS 驗收服務")
-        print("  device       個人版裝置 pull／accept-boot（host 驗收；不燒錄）")
+        print("  device       個人版 pull／accept-boot／provision-nvs（host；不燒錄）")
         print("  version      顯示契約 schema_version")
         raise SystemExit(0 if args else 2)
 
