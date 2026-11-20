@@ -41,6 +41,8 @@ extern "C" void app_main(void)
                                      GetMooncake().installApp(std::make_unique<AppAppCenter>()));
         hal_toggles::register_app_id(hal_toggles::App::Ezdata, GetMooncake().installApp(std::make_unique<AppEzdata>()));
         hal_toggles::register_app_id(hal_toggles::App::Dance, GetMooncake().installApp(std::make_unique<AppDance>()));
+        // Companion：新增獨立入口，不納入原廠 feature toggle，也不取代 Xiaozhi
+        GetMooncake().installApp(std::make_unique<AppCompanion>());
         GetMooncake().installApp(std::make_unique<AppSetup>());
 
         // Main loop
