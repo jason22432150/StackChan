@@ -1,2 +1,28 @@
+# macOS / IDE
 .DS_Store
 .idea/
+.vscode/
+*.code-workspace
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.python-version.local
+
+# 本機環境與機密（勿提交）
+.env
+.env.*
+!.env.example
+
+# 日誌與暫存
+*.log
+*.tmp
+*.swp
+*~

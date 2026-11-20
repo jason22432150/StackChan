@@ -34,9 +34,9 @@
 # MacOS desktop metadata files
 .DS_Store
 
-# Build files
+# Build files（含個人／測試用 out-of-tree build 目錄）
 build/
-build-host-tests/
+build-*/
 cmake-build-*/
 /components/
 managed_components/
@@ -48,8 +48,11 @@ managed_components/
 .vscode/
 .cache/
 
-# Python virtual environment
+# Python
 .venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Debug / Release files
 Debug/
