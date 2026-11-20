@@ -51,6 +51,7 @@
 | 寵物太吵 | `focus_mode`、quiet hours、proactive quota | 不要只靠改 Prompt 避免騷擾 |
 | SD 顯示無法讀取 | 是否插卡、格式、官方容量限制、共用 SPI | **不要自動格式化** |
 | 原廠 AI 切換失敗 | Mooncake/Xiaozhi 生命週期、warm reboot | 不刪原廠入口 |
+| 進 Companion 立刻重啟／假死／WDT | 見 [`18_PHASE1_FIELD_ISSUES.md`](./18_PHASE1_FIELD_ISSUES.md)（F-01～F-04） | 不要當成必須重刷分割表；先查 serial |
 
 ## 官方來源
 - Raspberry Pi：https://www.raspberrypi.com/documentation/

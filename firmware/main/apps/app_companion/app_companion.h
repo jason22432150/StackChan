@@ -59,10 +59,11 @@ private:
     void create_ui();
     void destroy_ui();
     void setup_avatar();
+    void raise_overlays();
     void teardown_avatar();
     void start_client();
     void handle_stop_touch();
-    void drain_commands();
-    void refresh_status_labels();
-    void update_offline_idle();
+    void drain_commands_locked();
+    void refresh_status_labels_locked();
+    void update_offline_idle_locked();
 };

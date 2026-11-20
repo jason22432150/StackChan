@@ -202,6 +202,7 @@ void AppSetup::onClose()
     view::destroy_status_bar();
 
     if (_need_warm_reset) {
-        GetHAL().requestWarmReboot(6);
+        // unfiltered app 列表：Companion 插入後 SETUP 為 index 7
+        GetHAL().requestWarmReboot(7);
     }
 }

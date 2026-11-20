@@ -4,6 +4,7 @@ Mooncake 獨立 App：連線 Raspberry Pi Coordinator，顯示文字／表情／
 
 ## 能力（本階段）
 
+- 開啟時先 `startNetwork()`（與原廠 Avatar 相同），再連 Pi；避免 lwIP Invalid mbox 當機
 - WebSocket：`hello` / `hello.ok` / `heartbeat` / `ack`
 - 接收：`text.show`、`expression.set`、`animation.play`、`motion.set`、`state.set`、`stop`
 - 觸控 **STOP**：先停本機馬達／字幕，再通知 Pi

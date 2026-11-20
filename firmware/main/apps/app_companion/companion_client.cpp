@@ -9,51 +9,138 @@
 #include <apps/common/common.h>
 #include <web_socket.h>
 #include <network_error.h>
+#include <wifi_manager.h>
 
 namespace companion {
 namespace {
 constexpr std::string_view kTag = "CompanionWS";
-}
+constexpr uint32_t kConnectStack = 6144;
+constexpr UBaseType_t kConnectPrio = 5;
+}  // namespace
 
-CompanionClient::CompanionClient() = default;
+CompanionClient::CompanionClient()
+{
+    _connect_done_sem = xSemaphoreCreateBinary();
+}
 
 CompanionClient::~CompanionClient()
 {
     stop();
+    if (_connect_done_sem) {
+        vSemaphoreDelete(_connect_done_sem);
+        _connect_done_sem = nullptr;
+    }
 }
 
 void CompanionClient::start(std::string ws_url, std::string token, std::string device_id)
 {
-    stop();
-    _ws_url    = std::move(ws_url);
-    _token     = std::move(token);
-    _device_id = std::move(device_id);
+    // 取消進行中的連線，但不要在此 join（TCP timeout 可達十數秒，會堵死 Mooncake 主迴圈）
+    // 重要：Connect 期間只 Close、不 reset，避免 use-after-free → heap 損壞 → StoreProhibited
+    _stop_requested.store(true);
+    _generation.fetch_add(1);
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_ws) {
+            _ws->Close();
+        }
+    }
+
+    if (_connect_task != nullptr) {
+        mclog::tagWarn(kTag, "previous connect still in flight, defer new start");
+        set_link(LinkState::Connecting);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _ws.reset();
+        _queue.clear();
+        _session_id.clear();
+    }
+
+    _ws_url     = std::move(ws_url);
+    _token      = std::move(token);
+    _device_id  = std::move(device_id);
     _hello_sent = false;
     _missed_heartbeats.store(0);
+    _stop_requested.store(false);
     set_link(LinkState::Connecting);
-    connect_async();
+
+    if (!_connect_done_sem) {
+        mclog::tagError(kTag, "connect semaphore missing");
+        set_link(LinkState::Offline);
+        return;
+    }
+    xSemaphoreTake(_connect_done_sem, 0);
+
+    // Connect 可能卡在不可達 IP 十數秒；必須離主迴圈，否則畫面假死、home 無反應
+    if (xTaskCreate(&CompanionClient::connect_task_entry, "comp_ws", kConnectStack, this, kConnectPrio,
+                    &_connect_task) != pdPASS) {
+        _connect_task = nullptr;
+        mclog::tagError(kTag, "failed to start connect task");
+        set_link(LinkState::Offline);
+        return;
+    }
 }
 
 void CompanionClient::stop()
 {
-    if (_ws) {
-        // 通知 Pi：Companion 即將退出，不可再推 UI
-        if (_link_state.load() == LinkState::Online) {
-            _ws->Send(MakeDeviceModeJson("launcher", false));
-        }
-        _ws->Close();
-        _ws.reset();
-    }
+    _stop_requested.store(true);
+    _generation.fetch_add(1);
+
     {
         std::lock_guard<std::mutex> lock(_mutex);
+        if (_ws) {
+            // 打斷進行中的 Connect／收送；物件生命週期保留到 join 之後再釋放
+            if (_link_state.load() == LinkState::Online) {
+                _ws->Send(MakeDeviceModeJson("launcher", false));
+            }
+            _ws->Close();
+        }
+    }
+
+    join_connect_task();
+
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _ws.reset();
         _queue.clear();
         _session_id.clear();
     }
     set_link(LinkState::Idle);
 }
 
+void CompanionClient::join_connect_task()
+{
+    if (!_connect_done_sem) {
+        _connect_task = nullptr;
+        return;
+    }
+    if (!_connect_task) {
+        xSemaphoreTake(_connect_done_sem, 0);
+        return;
+    }
+    // Connect timeout 約 10s；給足夠時間讓 task 收尾
+    if (xSemaphoreTake(_connect_done_sem, pdMS_TO_TICKS(15000)) != pdTRUE) {
+        mclog::tagWarn(kTag, "connect task join timeout");
+    }
+    _connect_task = nullptr;
+}
+
+void CompanionClient::connect_task_entry(void* arg)
+{
+    auto* self = static_cast<CompanionClient*>(arg);
+    self->connect_worker();
+    // 先通知 join，再自刪；_connect_task 由 join 端清空，避免雙寫競態
+    if (self->_connect_done_sem) {
+        xSemaphoreGive(self->_connect_done_sem);
+    }
+    vTaskDelete(nullptr);
+}
+
 void CompanionClient::sendText(const std::string& json)
 {
+    std::lock_guard<std::mutex> lock(_mutex);
     if (_ws && _ws->IsConnected()) {
         _ws->Send(json);
     }
@@ -95,14 +182,27 @@ void CompanionClient::tickHeartbeat(uint32_t now_ms, uint32_t interval_ms)
     if (_missed_heartbeats.load() >= 3) {
         mclog::tagWarn(kTag, "heartbeat timeout → offline");
         set_link(LinkState::Offline);
+        std::lock_guard<std::mutex> lock(_mutex);
         if (_ws) {
             _ws->Close();
         }
     }
 }
 
-void CompanionClient::connect_async()
+void CompanionClient::connect_worker()
 {
+    const uint32_t gen = _generation.load();
+    if (_stop_requested.load()) {
+        set_link(LinkState::Offline);
+        return;
+    }
+
+    if (!WifiManager::GetInstance().IsConnected()) {
+        mclog::tagWarn(kTag, "wifi not connected, skip websocket connect");
+        set_link(LinkState::Offline);
+        return;
+    }
+
     auto* network = Board::GetInstance().GetNetwork();
     if (!network) {
         mclog::tagError(kTag, "network unavailable");
@@ -110,19 +210,21 @@ void CompanionClient::connect_async()
         return;
     }
 
-    // 使用獨立 connect_id，避免與 Avatar/Xiaozhi 服務衝突
-    _ws = network->CreateWebSocket(31);
-    if (!_ws) {
+    auto ws = network->CreateWebSocket(31);
+    if (!ws) {
         mclog::tagError(kTag, "CreateWebSocket failed");
         set_link(LinkState::Offline);
         return;
     }
 
     if (!_token.empty()) {
-        _ws->SetHeader("X-StackChan-Token", _token.c_str());
+        ws->SetHeader("X-StackChan-Token", _token.c_str());
     }
 
-    _ws->OnConnected([this]() {
+    ws->OnConnected([this, gen]() {
+        if (_stop_requested.load() || _generation.load() != gen) {
+            return;
+        }
         mclog::tagInfo(kTag, "connected");
         set_link(LinkState::Online);
         _missed_heartbeats.store(0);
@@ -132,17 +234,26 @@ void CompanionClient::connect_async()
         }
     });
 
-    _ws->OnDisconnected([this]() {
+    ws->OnDisconnected([this, gen]() {
+        if (_generation.load() != gen) {
+            return;
+        }
         mclog::tagWarn(kTag, "disconnected");
         set_link(LinkState::Offline);
     });
 
-    _ws->OnError([this](const NetworkError& error) {
+    ws->OnError([this, gen](const NetworkError& error) {
+        if (_generation.load() != gen) {
+            return;
+        }
         mclog::tagError(kTag, "ws error: {}", error.ToString());
         set_link(LinkState::Offline);
     });
 
-    _ws->OnData([this](const char* data, size_t len, bool binary) {
+    ws->OnData([this, gen](const char* data, size_t len, bool binary) {
+        if (_stop_requested.load() || _generation.load() != gen) {
+            return;
+        }
         if (binary || data == nullptr || len == 0) {
             return;
         }
@@ -170,7 +281,6 @@ void CompanionClient::connect_async()
         url.append("&token=").append(_token);
     }
 
-    // 避免把 token 打進 log
     auto log_url = url;
     const auto token_pos = log_url.find("token=");
     if (token_pos != std::string::npos) {
@@ -180,9 +290,41 @@ void CompanionClient::connect_async()
         }
         log_url.replace(token_pos, end - token_pos, "token=***");
     }
+
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_stop_requested.load() || _generation.load() != gen) {
+            set_link(LinkState::Offline);
+            return;
+        }
+        _ws = std::move(ws);
+    }
+
+    // Connect 可能阻塞十數秒，且成功時會同步觸發 OnConnected→sendText；
+    // 不可持有 _mutex，否則死鎖。stop() 只會 Close、不會在 join 前 reset。
     mclog::tagInfo(kTag, "connecting {}", log_url);
-    auto result = _ws->Connect(url.c_str());
-    if (!result) {
+    bool ok = false;
+    {
+        WebSocket* raw = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            raw = _ws.get();
+        }
+        if (raw) {
+            ok = static_cast<bool>(raw->Connect(url.c_str()));
+        }
+    }
+
+    if (_stop_requested.load() || _generation.load() != gen) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_ws) {
+            _ws->Close();
+        }
+        set_link(LinkState::Offline);
+        return;
+    }
+
+    if (!ok) {
         mclog::tagError(kTag, "connect failed");
         set_link(LinkState::Offline);
     }

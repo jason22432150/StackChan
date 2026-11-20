@@ -11,7 +11,9 @@
 #include <apps/common/common.h>
 #include <stackchan/stackchan.h>
 #include <settings.h>
+#include <wifi_manager.h>
 #include <cstdio>
+#include <memory>
 
 using namespace mooncake;
 using namespace stackchan;
@@ -61,12 +63,40 @@ void AppCompanion::onOpen()
 {
     mclog::tagInfo(getAppInfo().name, "on open");
     load_settings();
+
+    // 與原廠 Avatar 相同：先啟動 Wi-Fi／lwIP，再建立 WebSocket。
+    // 否則 WebSocket::Connect → getaddrinfo 會觸發 tcpip Invalid mbox assert 並重啟。
+    std::unique_ptr<view::LoadingPage> loading_page;
+    {
+        LvglLockGuard lock;
+        loading_page = std::make_unique<view::LoadingPage>(kThemeBorderColor, kThemeColor);
+        loading_page->setMessage("Starting\nWi-Fi...");
+    }
+    GetHAL().startNetwork([&](std::string_view msg) {
+        LvglLockGuard lock;
+        if (loading_page) {
+            loading_page->setMessage(msg);
+        }
+    });
+    {
+        LvglLockGuard lock;
+        loading_page.reset();
+    }
+
+    // 順序必須與原廠 Avatar 一致：先建臉，再建立 home／status，否則全螢幕
+    // avatar 會蓋住返回主頁按鈕，導致無法觸發 close()。
     create_ui();
     setup_avatar();
+    {
+        LvglLockGuard lock;
+        raise_overlays();
+        view::create_home_indicator([this]() { close(); }, kThemeColor, kThemeBorderColor);
+        view::create_status_bar(kThemeColor, kThemeBorderColor);
+    }
     start_client();
-    _opened_at_ms       = GetHAL().millis();
-    _status_tick_ms     = _opened_at_ms;
-    _reconnect_tick_ms  = _opened_at_ms;
+    _opened_at_ms      = GetHAL().millis();
+    _status_tick_ms    = _opened_at_ms;
+    _reconnect_tick_ms = _opened_at_ms;
 }
 
 void AppCompanion::onRunning()
@@ -75,34 +105,44 @@ void AppCompanion::onRunning()
         return;
     }
 
-    // 網路回呼只入隊；此處抽取並在 LVGL lock 下更新，避免阻塞 WS 執行緒
-    drain_commands();
-
     if (_client) {
         _client->tickHeartbeat(GetHAL().millis(), kHeartbeatMs);
     }
 
-    GetStackChan().update();
-    view::update_home_indicator();
-    view::update_status_bar();
-
     const auto link = _client ? _client->linkState() : LinkState::Idle;
-    if (link != _last_link) {
-        _last_link = link;
-        update_offline_idle();
-        refresh_status_labels();
-    }
 
-    // 離線自動重連（不重啟裝置）
+    // 離線重連：不可在 Connect 進行中再次 start（stop/join 會堵死主迴圈 → IDLE0 WDT）
     if (link == LinkState::Offline && GetHAL().millis() - _reconnect_tick_ms > kReconnectMs) {
         _reconnect_tick_ms = GetHAL().millis();
-        mclog::tagInfo(getAppInfo().name, "retry connect");
-        start_client();
+        if (!WifiManager::GetInstance().IsConnected()) {
+            mclog::tagWarn(getAppInfo().name, "wifi down, skip ws reconnect");
+        } else if (_client && _client->isConnectInFlight()) {
+            mclog::tagInfo(getAppInfo().name, "connect in flight, skip retry");
+        } else {
+            mclog::tagInfo(getAppInfo().name, "retry connect");
+            start_client();
+        }
     }
 
-    if (GetHAL().millis() - _status_tick_ms > 1000) {
-        _status_tick_ms = GetHAL().millis();
-        refresh_status_labels();
+    // 與原廠 Avatar 相同：整段 UI／avatar 更新持 LVGL lock，避免無鎖 setPos 拖死 CPU0
+    {
+        LvglLockGuard lock;
+        drain_commands_locked();
+
+        GetStackChan().update();
+        view::update_home_indicator();
+        view::update_status_bar();
+
+        if (link != _last_link) {
+            _last_link = link;
+            update_offline_idle_locked();
+            refresh_status_labels_locked();
+        }
+
+        if (GetHAL().millis() - _status_tick_ms > 1000) {
+            _status_tick_ms = GetHAL().millis();
+            refresh_status_labels_locked();
+        }
     }
 }
 
@@ -117,6 +157,9 @@ void AppCompanion::onClose()
     }
     teardown_avatar();
     destroy_ui();
+    // 與 Avatar／Dance 相同：Wi-Fi／WS 啟動後以 warm reboot 回到 Launcher
+    // index 對應 main.cpp 未過濾 app 列表（0=AI.AGENT … 6=COMPANION）
+    GetHAL().requestWarmReboot(6);
 }
 
 void AppCompanion::load_settings()
@@ -168,9 +211,7 @@ void AppCompanion::create_ui()
     _stop_button->label().setText("STOP");
     _stop_button->onClick().connect([this]() { handle_stop_touch(); });
 
-    view::create_home_indicator([this]() { close(); }, kThemeColor, kThemeBorderColor);
-    view::create_status_bar(kThemeColor, kThemeBorderColor);
-
+    // home／status 改在 setup_avatar() 之後建立，避免被全螢幕臉蓋住
     _ui_ready = true;
 }
 
@@ -192,12 +233,37 @@ void AppCompanion::setup_avatar()
 {
     LvglLockGuard lock;
     auto avatar = std::make_unique<avatar::DefaultAvatar>();
-    // 放在畫面中央偏上，避免擋住 STOP／狀態文字
-    avatar->init(lv_screen_active());
+    // 掛在 _root 下（非 screen），才能用 raise_overlays 把 STOP／狀態提到臉之上；
+    // home indicator 仍建在 screen，並在 avatar 之後建立以保持最上層。
+    avatar->init(_root ? _root->get() : lv_screen_active());
+    if (auto* panel = avatar->getPanel()) {
+        // 不攔截觸控，讓 STOP 與底部上滑手勢可運作
+        panel->removeFlag(LV_OBJ_FLAG_CLICKABLE);
+    }
     GetStackChan().attachAvatar(std::move(avatar));
     GetStackChan().addModifier(std::make_unique<BreathModifier>());
     GetStackChan().addModifier(std::make_unique<BlinkModifier>());
     _avatar_ready = true;
+}
+
+void AppCompanion::raise_overlays()
+{
+    // 將狀態／STOP 提到臉之上；home indicator 另於呼叫端建立
+    if (_title) {
+        _title->moveForeground();
+    }
+    if (_status) {
+        _status->moveForeground();
+    }
+    if (_activity) {
+        _activity->moveForeground();
+    }
+    if (_subtitle) {
+        _subtitle->moveForeground();
+    }
+    if (_stop_button) {
+        _stop_button->moveForeground();
+    }
 }
 
 void AppCompanion::teardown_avatar()
@@ -218,10 +284,9 @@ void AppCompanion::start_client()
 {
     if (!_client) {
         _client = std::make_unique<CompanionClient>();
-    } else {
-        _client->stop();
     }
     const auto device_id = GetHAL().getFactoryMacString();
+    // start() 內部會取消舊連線；不可在此同步 join，以免堵住 onRunning
     _client->start(_pi_ws_url, _pi_token, device_id);
     _last_link = _client->linkState();
 }
@@ -235,26 +300,25 @@ void AppCompanion::handle_stop_touch()
         if (_subtitle) {
             _subtitle->setText("");
         }
+        refresh_status_labels_locked();
     }
     if (_client) {
         _client->sendText(MakeStopJson("touch"));
         _client->sendText(MakeTouchJson("screen", "stop"));
     }
-    refresh_status_labels();
 }
 
-void AppCompanion::drain_commands()
+void AppCompanion::drain_commands_locked()
 {
     if (!_client) {
         return;
     }
     Command cmd;
-    // 限制單次處理數量，避免一次抽太多阻塞 UI
+    // 限制單次處理數量，避免一次抽太多阻塞 UI（呼叫端已持 LVGL lock）
     for (int i = 0; i < 8 && _client->popCommand(cmd); ++i) {
         if (cmd.type == MsgType::HelloOk || cmd.type == MsgType::Heartbeat || cmd.type == MsgType::Ack) {
             continue;
         }
-        LvglLockGuard lock;
         _executor.apply(cmd);
         if (_subtitle && !_executor.subtitle().empty()) {
             _subtitle->setText(_executor.subtitle().c_str());
@@ -266,9 +330,8 @@ void AppCompanion::drain_commands()
     }
 }
 
-void AppCompanion::refresh_status_labels()
+void AppCompanion::refresh_status_labels_locked()
 {
-    LvglLockGuard lock;
     if (!_status) {
         return;
     }
@@ -280,9 +343,8 @@ void AppCompanion::refresh_status_labels()
     _status->setText(buf);
 }
 
-void AppCompanion::update_offline_idle()
+void AppCompanion::update_offline_idle_locked()
 {
-    LvglLockGuard lock;
     if (_last_link == LinkState::Offline || _last_link == LinkState::Connecting) {
         if (_idle_modifier_id < 0 && _avatar_ready) {
             _idle_modifier_id = GetStackChan().addModifier(std::make_unique<IdleMotionModifier>(6000, 12000));

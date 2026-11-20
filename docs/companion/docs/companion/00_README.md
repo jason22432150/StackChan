@@ -43,6 +43,7 @@
 | `08_AI_IMPLEMENTATION_PROMPT.md` | 可貼給 Codex 的工作指令 |
 | `09_SOURCES_AND_ASSUMPTIONS.md` | GitHub 證據與待查事項 |
 | `10_DECISIONS_v2.3.md` | 8 項決策與舊版差異 |
+| `18_PHASE1_FIELD_ISSUES.md` | Phase 1 實機問題、根因與解法紀錄 |
 
 ## 狀態說明
 「已確認」表示確認源碼存在基礎，不代表完成實機驗證；「設計」表示開發目標。**目前尚未修改 GitHub，未燒錄或測試硬體。**
@@ -90,3 +91,4 @@
 - [`15_DATA_CONFIG.md`](./15_DATA_CONFIG.md)
 - [`16_IMPLEMENTATION_BACKLOG.md`](./16_IMPLEMENTATION_BACKLOG.md)
 - [`17_DEPLOYMENT_RUNBOOK.md`](./17_DEPLOYMENT_RUNBOOK.md)
+- [`18_PHASE1_FIELD_ISSUES.md`](./18_PHASE1_FIELD_ISSUES.md) — Phase 1 實機問題／原因／解法
