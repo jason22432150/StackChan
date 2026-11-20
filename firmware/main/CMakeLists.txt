@@ -342,10 +342,41 @@ target_compile_options(${COMPONENT_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=g
 if(NOT BOARD_NAME)
     set(BOARD_NAME ${BOARD_TYPE})
 endif()
+
+# Companion：建置期從 apps/app_companion/.env 讀取預設 Pi URL／token（非執行期 dotenv）
+set(COMPANION_ENV_FILE "${CMAKE_CURRENT_SOURCE_DIR}/apps/app_companion/.env")
+set(COMPANION_DEFAULT_PI_WS_URL "ws://192.168.1.1:8765/ws/device")
+set(COMPANION_DEFAULT_PI_TOKEN "")
+if(EXISTS "${COMPANION_ENV_FILE}")
+    file(STRINGS "${COMPANION_ENV_FILE}" _companion_env_lines)
+    foreach(_line IN LISTS _companion_env_lines)
+        if(_line MATCHES "^[ \t]*#" OR _line MATCHES "^[ \t]*$")
+            continue()
+        endif()
+        if(_line MATCHES "^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+            set(_env_key "${CMAKE_MATCH_1}")
+            set(_env_val "${CMAKE_MATCH_2}")
+            string(REGEX REPLACE "^\"(.*)\"$" "\\1" _env_val "${_env_val}")
+            string(REGEX REPLACE "^'(.*)'$" "\\1" _env_val "${_env_val}")
+            if(_env_key STREQUAL "COMPANION_PI_WS_URL" AND NOT _env_val STREQUAL "")
+                set(COMPANION_DEFAULT_PI_WS_URL "${_env_val}")
+            elseif(_env_key STREQUAL "COMPANION_PI_TOKEN")
+                set(COMPANION_DEFAULT_PI_TOKEN "${_env_val}")
+            endif()
+        endif()
+    endforeach()
+    message(STATUS "Companion: defaults from ${COMPANION_ENV_FILE}")
+    message(STATUS "Companion: PI_WS_URL=${COMPANION_DEFAULT_PI_WS_URL}")
+else()
+    message(STATUS "Companion: no .env at ${COMPANION_ENV_FILE}, using built-in defaults")
+endif()
+
 target_compile_definitions(${COMPONENT_LIB}
                     PRIVATE BOARD_TYPE=\"${BOARD_TYPE}\" BOARD_NAME=\"${BOARD_NAME}\"
                     PRIVATE BUILTIN_TEXT_FONT=${BUILTIN_TEXT_FONT} BUILTIN_ICON_FONT=${BUILTIN_ICON_FONT}
                     PRIVATE BOARD_MANUFACTURER=\"m5stack\" TEXT_FONT_SIZE=20 TEXT_FONT_BPP=4
+                    PRIVATE "COMPANION_DEFAULT_PI_WS_URL=\"${COMPANION_DEFAULT_PI_WS_URL}\""
+                    PRIVATE "COMPANION_DEFAULT_PI_TOKEN=\"${COMPANION_DEFAULT_PI_TOKEN}\""
                     )
 
 # Add generation rules

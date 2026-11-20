@@ -11,14 +11,33 @@ Mooncake 獨立 App：連線 Raspberry Pi Coordinator，顯示文字／表情／
 - Pi 離線：顯示 offline、本機 IdleMotion，自動重連；可回 Launcher
 - 退出：`device.mode=launcher`、關閉 socket、`resetAvatar`、停馬達
 
+## 建置期 `.env`（本機，勿提交）
+
+ESP32 **執行期不會讀** 開發機上的 `.env`；改為 **建置時** 由 CMake 注入預設值。
+
+```bash
+cd firmware/main/apps/app_companion
+cp .env.example .env
+# 編輯 COMPANION_PI_WS_URL=ws://<Pi-IP>:8765/ws/device
+cd ../../..   # → firmware/
+idf.py reconfigure build
+```
+
+| 鍵 | 說明 |
+|---|---|
+| `COMPANION_PI_WS_URL` | 燒進韌體的預設 WS URL |
+| `COMPANION_PI_TOKEN` | 預設 LAN token（可空） |
+
 ## NVS 設定（一般 NVS，非 eFuse）
 
-namespace `companion`：
+namespace `companion`（執行期優先於建置預設）：
 
-| key | 說明 | 預設 |
+| key | 說明 | 預設來源 |
 |---|---|---|
-| `pi_ws_url` | Pi WebSocket URL | `ws://192.168.1.1:8765/ws/device` |
-| `pi_token` | LAN Token（可空＝開發模式） | `""` |
+| `pi_ws_url` | Pi WebSocket URL | `.env` → 否則 `ws://192.168.1.1:8765/ws/device` |
+| `pi_token` | LAN Token（可空＝開發模式） | `.env` → 否則 `""` |
+
+若 NVS 已寫過舊 URL，只改 `.env` 重編不會覆蓋；需清 NVS 或之後用設定頁更新。
 
 ## 不做（留給後續 Phase）
 

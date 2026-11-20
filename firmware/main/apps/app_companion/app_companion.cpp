@@ -26,7 +26,15 @@ constexpr uint32_t kThemeBorderColor = 0x1B4F44;
 constexpr const char* kAppName       = "COMPANION";
 constexpr uint32_t kHeartbeatMs      = 5000;
 constexpr uint32_t kReconnectMs      = 5000;
-constexpr const char* kDefaultWsUrl  = "ws://192.168.1.1:8765/ws/device";
+// 預設由 apps/app_companion/.env 於建置時注入；無 .env 時用下方後備值
+#ifndef COMPANION_DEFAULT_PI_WS_URL
+#define COMPANION_DEFAULT_PI_WS_URL "ws://192.168.1.1:8765/ws/device"
+#endif
+#ifndef COMPANION_DEFAULT_PI_TOKEN
+#define COMPANION_DEFAULT_PI_TOKEN ""
+#endif
+constexpr const char* kDefaultWsUrl = COMPANION_DEFAULT_PI_WS_URL;
+constexpr const char* kDefaultToken = COMPANION_DEFAULT_PI_TOKEN;
 
 const char* LinkStateLabel(LinkState state)
 {
@@ -164,10 +172,10 @@ void AppCompanion::onClose()
 
 void AppCompanion::load_settings()
 {
-    // 一般 NVS，不寫 eFuse；未設定時使用預設 LAN URL
+    // 一般 NVS，不寫 eFuse；未設定時使用建置期 .env／後備預設
     Settings settings("companion", false);
     _pi_ws_url = settings.GetString("pi_ws_url", kDefaultWsUrl);
-    _pi_token  = settings.GetString("pi_token", "");
+    _pi_token  = settings.GetString("pi_token", kDefaultToken);
 }
 
 void AppCompanion::create_ui()
