@@ -1,0 +1,55 @@
+# StackChan Companion Coordinator 設定範本（不含密鑰）
+# 複製為 config.yaml 後依環境修改；API Key 請用環境變數。
+
+app:
+  timezone: Asia/Taipei
+  host: 0.0.0.0
+  port: 8765
+  log_level: INFO
+
+device:
+  boot_mode: companion
+  heartbeat_seconds: 5
+  session_timeout_seconds: 15
+  max_text_chars: 160
+
+llm:
+  active_provider: provider_a
+  providers: [provider_a, provider_b]
+  timeout_seconds: 25
+  max_pet_plans_per_day: 48
+  daily_spend_usd_soft_limit: 1.0
+
+voice:
+  activation: [touch, keyword]
+  keyword_name: "小智"
+  interrupt: touch
+  raw_audio_retention: false
+
+pet:
+  personality: natural
+  mood_initial: 50
+  energy_initial: 70
+  interests_initial: 50
+  action_min_seconds: 30
+  action_max_seconds: 1200
+  recent_activity_window: 20
+
+proactivity:
+  focus_mode: false
+  quiet_hours:
+    start: "23:00"
+    end: "08:00"
+  voice_max_per_day: 3
+  voice_min_interval_minutes: 90
+  bubble_min_interval_minutes: 20
+  bubble_max_interval_minutes: 60
+
+notifications:
+  companion_only: true
+  max_resume_summary: 5
+  retention_days: 7
+
+storage:
+  db_path: ./data/companion.db
+  raw_audio_save: false
