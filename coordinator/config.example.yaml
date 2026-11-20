@@ -12,6 +12,8 @@ device:
   heartbeat_seconds: 5
   session_timeout_seconds: 15
   max_text_chars: 160
+  # 正式部署請改為本機密值，或用環境變數 STACKCHAN_DEVICE_TOKEN
+  token: ""
 
 llm:
   active_provider: provider_a

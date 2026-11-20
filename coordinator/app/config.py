@@ -30,6 +30,8 @@ class DeviceConfig(BaseModel):
     heartbeat_seconds: int = 5
     session_timeout_seconds: int = 15
     max_text_chars: int = 160
+    # LAN 配對 Token；正式環境請用環境變數 STACKCHAN_DEVICE_TOKEN 覆寫，勿提交真實值
+    token: str = ""
 
 
 class LlmConfig(BaseModel):

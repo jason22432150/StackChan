@@ -70,6 +70,10 @@ def test_device_hub_mode_isolation():
     hub = DeviceWsHub()
     assert hub.can_push_companion_ui() is False
     hub.set_mode("companion", active=True)
+    # Phase 1：尚需有效 session／websocket 才允許推送
+    assert hub.can_push_companion_ui() is False
+    hub.session.session_id = "sess-test"
+    hub.session.websocket = object()  # type: ignore[assignment]
     assert hub.can_push_companion_ui() is True
     hub.set_mode("launcher", active=False)
     assert hub.can_push_companion_ui() is False

@@ -1,20 +1,36 @@
-# AppCompanion（Phase 0）
+# AppCompanion（Phase 1）
 
-Mooncake 獨立 App 空殼：
+Mooncake 獨立 App：連線 Raspberry Pi Coordinator，顯示文字／表情／活動，並執行安全範圍內的轉頭。
 
-- Launcher 可開啟／以 home indicator 退出
-- `onClose` 釋放 LVGL UI
-- **不**請求 Xiaozhi、**不**占用 Audio Codec、**不**連 Pi、**不**控制馬達
-- **不**呼叫 `requestWarmReboot`（與 Avatar/Dance 不同；Phase 0 未取得需 reboot 才能釋放的資源）
+## 能力（本階段）
 
-## 生命週期清理設計（P0-04）
+- WebSocket：`hello` / `hello.ok` / `heartbeat` / `ack`
+- 接收：`text.show`、`expression.set`、`animation.play`、`motion.set`、`state.set`、`stop`
+- 觸控 **STOP**：先停本機馬達／字幕，再通知 Pi
+- Pi 離線：顯示 offline、本機 IdleMotion，自動重連；可回 Launcher
+- 退出：`device.mode=launcher`、關閉 socket、`resetAvatar`、停馬達
+
+## NVS 設定（一般 NVS，非 eFuse）
+
+namespace `companion`：
+
+| key | 說明 | 預設 |
+|---|---|---|
+| `pi_ws_url` | Pi WebSocket URL | `ws://192.168.1.1:8765/ws/device` |
+| `pi_token` | LAN Token（可空＝開發模式） | `""` |
+
+## 不做（留給後續 Phase）
+
+- 音訊上行／下行、喚醒詞、雲端 STT/LLM/TTS
+- `boot_mode` 開機直入
+- microSD 設定頁
+- 完整活動動畫素材（目前以表情＋字幕＋輕轉頭代替）
+
+## 生命週期清理
 
 | 資源 | onOpen | onClose |
 |---|---|---|
-| LVGL 根畫面／標籤 | 建立 | `reset()` |
-| home indicator / status bar | 建立 | `destroy_*` |
-| 麥克風／喇叭 | 未取得 | N/A（後續 Phase 必須先停播再釋放） |
-| WebSocket | 未連線 | N/A（後續 Phase 必須關閉） |
-| 馬達 | 未控制 | N/A |
-
-後續 Phase 接入音訊／WS 時，必須保持「關閉 Companion 後原廠 Xiaozhi 可依既有流程使用硬體」的約束。
+| LVGL UI / STOP 鈕 | 建立 | destroy |
+| DefaultAvatar + modifiers | 建立 | clear + resetAvatar |
+| WebSocket | 連線 | stop + device.mode inactive |
+| 馬達 | 可被指令驅動 | stop + goHome |
